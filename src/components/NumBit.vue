@@ -1,10 +1,10 @@
 <script setup lang="ts">
 defineProps<{
   /** 输入信号。必须是形如 `0b0000000` 的二进制数。 */
-  input: number;
+  input: number
   /** 主题色。必须是形如 `#FF00000` 的字符串。 */
-  themeColor?: string;
-}>();
+  themeColor?: string
+}>()
 
 /**
  * 获取二进制数的左起指定位数的值。
@@ -14,7 +14,7 @@ defineProps<{
  * @param bit 左起位数（从 1 开始）
  */
 function getBit(bin: number, length: number, bit: number) {
-  return Number(bin.toString(2).padStart(length, "0")[bit - 1] || 0);
+  return Number(bin.toString(2).padStart(length, '0')[bit - 1] || 0)
 }
 </script>
 
