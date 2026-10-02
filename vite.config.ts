@@ -16,7 +16,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'bridge/**/*.test.mjs'],
   },
   lint: {
     ignorePatterns: ['dist/**', 'playwright-report/**', 'test-results/**'],

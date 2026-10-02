@@ -153,3 +153,14 @@
       transparent 1px
     );
 }
+
+/* 小组件状态灯呼吸动画（busy 会话） */
+@keyframes digiboard-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

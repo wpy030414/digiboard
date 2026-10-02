@@ -70,6 +70,8 @@ export const WidgetLayerView = memo(function WidgetLayerView({
         opacity: layer.opacity,
         pointerEvents: 'none',
         outline: selected ? '1px dashed #ffaacc' : 'none',
+        // 启用容器查询单位（cqh/cqw），让小组件内容自适应任意图层尺寸与缩放
+        containerType: 'size',
       }}
     >
       {renderer ? (

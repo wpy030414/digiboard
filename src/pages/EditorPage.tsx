@@ -12,6 +12,7 @@ import { SceneCanvas } from '@/engine/render/SceneCanvas'
 import { useSceneStore } from '@/engine/scene-store'
 import { sceneToBase64Yaml, sceneToYaml } from '@/engine/export/to-yaml'
 import { downloadScenePng, downloadText } from '@/engine/export/to-png'
+import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
 
 /** 让画布按容器宽度自适应缩放（fit），并可手动覆盖。 */
 function useAutoScale(containerW: number, sceneW: number) {
@@ -25,6 +26,9 @@ export function EditorPage() {
   const redo = useSceneStore((s) => s.redo)
   const setTool = useSceneStore((s) => s.setTool)
   const navigate = useNavigate()
+
+  // 把场景里 Claude 小组件的 bridgeUrl 同步给状态 store（驱动 App 的 SSE 连接）
+  useSyncBridgeUrl(scene)
 
   const [scale, setScaleState] = useState(6)
   const [showGrid, setShowGrid] = useState(true)

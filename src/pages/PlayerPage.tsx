@@ -1,7 +1,204 @@
+/**
+ * 播放页：全屏只读渲染一个场景，适合当作电子副屏常驻展示。
+ *
+ * 载入来源（优先级）：
+ *  1. URL query `?scene=<base64-yml>`（编辑器「播放」跳转而来）
+ *  2. 拖拽 / 选择本地 .yml 文件
+ *  3. 无来源时展示一个内置演示场景 + 上传引导
+ *
+ * 自适应：scale = min(视口宽/场景宽, 视口高/场景高)，等比铺满、居中。
+ * 按 F 进入全屏，按 E 返回编辑器。
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Pencil, Upload, Maximize } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { SceneCanvas } from '@/engine/render/SceneCanvas'
+import type { Scene } from '@/engine/types'
+import { createDefaultScene } from '@/engine/factories'
+import { sceneFromBase64Yaml, sceneFromYaml } from '@/engine/export/to-yaml'
+import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
+
+function demoScene(): Scene {
+  const scene = createDefaultScene({ w: 96, h: 54 })
+  scene.background = '#0a0a0e'
+  // 演示：数码管显示时间感的数字 + 底部一条像素装饰
+  const digit = scene.layers.find((l) => l.type === 'digit')
+  if (digit && digit.type === 'digit') {
+    digit.text = '2077'
+    digit.digitHeight = 30
+    digit.x = 18
+    digit.y = 8
+    digit.color = '#ff3b5c'
+    digit.glowColor = '#ff3b5c'
+    digit.glow = 0.7
+    digit.skewX = -8
+  }
+  const px = scene.layers.find((l) => l.type === 'pixel')
+  if (px && px.type === 'pixel') {
+    px.color = '#ffaacc'
+    for (let x = 0; x < scene.size.w; x++) {
+      if (x % 2 === 0) px.pixels[(scene.size.h - 3) * scene.size.w + x] = 1
+    }
+  }
+  return scene
+}
+
 export function PlayerPage() {
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const [scene, setScene] = useState<Scene>(() => {
+    const b64 = searchParams.get('scene')
+    if (b64) {
+      try {
+        return sceneFromBase64Yaml(b64)
+      } catch (e) {
+        console.warn('URL 场景解析失败，使用演示场景', e)
+      }
+    }
+    return demoScene()
+  })
+  const [scale, setScale] = useState(1)
+  const [dragging, setDragging] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // 把场景里 Claude 小组件的 bridgeUrl 同步给状态 store（驱动 App 的 SSE 连接）
+  useSyncBridgeUrl(scene)
+
+  // 自适应缩放铺满
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const fit = () => {
+      const s = Math.min(
+        (el.clientWidth - 16) / scene.size.w,
+        (el.clientHeight - 16) / scene.size.h,
+      )
+      setScale(Math.max(0.1, Math.floor(s * 100) / 100))
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [scene.size.w, scene.size.h])
+
+  // 键盘：F 全屏，E 返回编辑器
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'f') {
+        if (document.fullscreenElement) void document.exitFullscreen()
+        else void containerRef.current?.requestFullscreen?.()
+      } else if (e.key.toLowerCase() === 'e') {
+        navigate('/')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navigate])
+
+  const loadYamlText = useCallback((text: string) => {
+    try {
+      setScene(sceneFromYaml(text))
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '无法解析 YAML')
+    }
+  }, [])
+
+  const onFile = useCallback(
+    (file: File) => {
+      const reader = new FileReader()
+      reader.onload = () => loadYamlText(String(reader.result))
+      reader.readAsText(file)
+    },
+    [loadYamlText],
+  )
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      setDragging(false)
+      const file = e.dataTransfer.files?.[0]
+      if (file) onFile(file)
+    },
+    [onFile],
+  )
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black text-white">
-      <p className="text-muted-foreground">播放页</p>
+    <div
+      ref={containerRef}
+      className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-black"
+      onDragOver={(e) => {
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
+      data-testid="player-page"
+    >
+      <SceneCanvas scene={scene} scale={scale} mode="play" />
+
+      {/* 悬浮控制（鼠标移动时显现，副屏常驻时自动隐藏干扰） */}
+      <div className="group absolute right-3 top-3 flex gap-1.5 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100">
+        <Button
+          variant="secondary"
+          size="sm"
+          data-testid="player-edit"
+          onClick={() => navigate('/')}
+        >
+          <Pencil className="size-4" /> 编辑器
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          data-testid="player-upload"
+          onClick={() => fileRef.current?.click()}
+        >
+          <Upload className="size-4" /> 载入 YAML
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          data-testid="player-fullscreen"
+          onClick={() => containerRef.current?.requestFullscreen?.()}
+        >
+          <Maximize className="size-4" />
+        </Button>
+      </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".yml,.yaml,text/yaml"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          if (f) onFile(f)
+        }}
+      />
+
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-primary/20 backdrop-blur-sm">
+          <p className="rounded-lg bg-background/90 px-6 py-3 text-lg font-medium">
+            松开以载入 YAML 场景
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-md bg-destructive px-4 py-2 text-sm text-white">
+          {error}
+        </div>
+      )}
+
+      {!searchParams.get('scene') && !error && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/40">
+          演示场景 · 拖入 .yml 或点右上「载入 YAML」· F 全屏 · E 返回编辑器
+        </div>
+      )}
     </div>
   )
 }
