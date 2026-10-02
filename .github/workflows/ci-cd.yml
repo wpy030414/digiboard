@@ -1,4 +1,4 @@
-name: Build Vue SPA
+name: Build DigiBoard SPA
 
 on:
   push:
@@ -14,16 +14,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up runtime
-        uses: actions/setup-node@v4
+      - name: Set up Vite+
+        uses: voidzero-dev/setup-vp@v1.21.1
         with:
           node-version: 24
+          cache: true
+
+      - name: Install dependencies
+        run: vp install
+
+      - name: Check (format, lint, types)
+        run: vp check
+
+      - name: Run tests
+        run: vp test
 
       - name: Build project
-        run: |
-          npm install -g pnpm
-          pnpm i
-          pnpm build
+        run: vp build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

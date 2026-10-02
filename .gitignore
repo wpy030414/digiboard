@@ -26,14 +26,16 @@ coverage
 
 *.tsbuildinfo
 
-.eslintcache
-
-# Cypress
-/cypress/videos/
-/cypress/screenshots/
-
 # Vitest
+coverage
 __screenshots__/
 
-# Vite
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Vite+
+.vite-plus/
 *.timestamp-*-*.mjs
