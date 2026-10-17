@@ -219,7 +219,7 @@
 - 背景：用户要求 ① 工具栏「新建画布」右侧新增「保存」，弹窗可选 YAML 或 PNG；② 拼豆模式导出的 PNG 要带行列序号与图例；③ 拼豆模式下每格都要有半透灰色参考线，同时保留 5 格红虚线、10 格红实线。
 - 决策：
   - 保存：新增 `editor/SaveDialog`，工具栏「保存」（与「新建」同款 ghost 图标按钮，tooltip 附 ⌘S；「新建」tooltip 附 ⌘N）与 ⌘S 都打开同一个对话框；两个选项复用既有 `handleExportYaml` / `handleExportPng`，对话框里直接写明拼豆 PNG 会附序号与图例。保存入口统一后，右侧不再保留重复的「导出 YAML / 导出 PNG」按钮。
-  - 导出版面：新增 `engine/export/beads-export.ts`。`measureBeadsExport` 计算留白、序号间隔、图例换行与画布尺寸；`drawBeadsAnnotations` 绘制列号（上）、行号（左）与图例（色块 + `色号 × 数量`，近似色带 `≈`）。图例按色号自然顺序排序（`A1 < A9 < A10 < B1`，屏幕与导出共用 `compareBeadCode`），不跟随调色板登记顺序。图例筛选（修订 ADR-016 的「非该色亮点不绘制」）：`onlyValue` 命中的颜色保持原样，其余亮点以 `FILTERED_DOT_ALPHA=0.3` 绘制，保留整体构图与色块标注，不改变数据与导出。
+  - 导出版面：新增 `engine/export/beads-export.ts`。`measureBeadsExport` 计算留白、序号间隔、图例换行与画布尺寸；`drawBeadsAnnotations` 绘制列号（上/下）、行号（左/右）与图例（色块 + `色号 × 数量`，近似色带 `≈`）。图例按色号自然顺序排序（`A1 < A9 < A10 < B1`，屏幕与导出共用 `compareBeadCode`），不跟随调色板登记顺序。图例筛选（修订 ADR-016 的「非该色亮点不绘制」）：`onlyValue` 命中的颜色保持原样，其余亮点以 `FILTERED_DOT_ALPHA=0.3` 绘制，保留整体构图与色块标注，不改变数据与导出。
 - 画笔：`setBrushColor` 统一吸附到最近拼豆色号（初始默认粉也落在 E19），工具栏 tooltip 显示色号而非 HEX；手选颜色因此不会产生买不到的豆色。
 - 色块标注：`drawPixelDots` 新增 `labelCodes`，格子 ≥`BEAD_CODE_MIN_CELL`(8px) 时在每个亮点中央写小号色号，文字按底色亮度取反（`invertedTextColor`：亮底近黑、暗底白），屏幕（`PixelCanvas`）与导出共用，保证两边一致。`renderSceneToCanvas` 在 `beads` 时默认启用，`beadsAnnotations: false` 可退回纯图案导出。
   - 参考线：`drawBeadsGuides` 先以 `rgba(255,255,255,0.16)` 画每格边界，再叠 5/10 格红线；屏幕 `BeadsOverlay` 用同样的灰线与红线规则，保证屏幕与导出观感一致。
@@ -238,3 +238,16 @@
 - 为什么不选其他：保留左侧图层树会继续挤占画布宽度；给两个面板各自加滚动条与边框会让右栏出现双重视觉分隔。
 - 后果：UI 中的「图层」术语统一为「小组件」；数据模型、store 方法与文件名仍为 Layer / LayerPanel，避免无收益的连锁重命名。窄屏未做响应式折叠（项目非目标）。
 - 何时重新审视：若需要可拖拽分隔条或记住分隔比例，再引入 splitter 与偏好持久化。
+
+## ADR-020：拼豆预览/导出提高分辨率，导出附署名行
+
+- 日期：2026-10-18
+- 状态：已采纳（细化 ADR-018）
+- 背景：大倍率下屏幕预览按每格 24 输出像素封顶，高分屏会把画布放大得发虚；拼豆 PNG 的像素密度跟随当前屏幕倍率，缩小视野后导出分辨率偏低。用户还要求在导出图的大图与图例之间加一行白色居中的「Powered by Digiboard. GitHub:wpy030414」。
+- 决策：
+  - 屏幕：`PixelCanvas.dotUnit` 的 `MAX_UNIT` 由 24 提高到 48，输出仍受单边 4096 约束。3200% 且 DPR=1 时每格按 32 输出像素渲染，不再被 24 截断；DPR=2 时最多按 48 渲染。
+  - 导出：新增 `beadsExportUnit(scene)`，拼豆导出与屏幕倍率解耦，取 `clamp(floor(4096 / max(w,h)), 8, 48)`。40×30 场景为 48px/格（画布 1920×1440，整图 1992×1644）；200×200 回落到 20px/格。普通模式仍按当前倍率导出。
+  - 署名：`measureBeadsExport` 在画布（含下方列号）与图例之间预留 `signatureH = font + 10`；`drawBeadsAnnotations` 用白色（`#ffffff`）在整图水平居中绘制 `Powered by Digiboard. GitHub:wpy030414`。
+  - 字号：色块内色号 `clamp(unit × 0.6, 5, 20)`；屏幕四周序号 `clamp(scale × 0.8, 9, 14)`；导出序号/图例/署名统一 `clamp(unit × 0.4, 12, 20)`，留白相应扩到 30–56px；屏幕图例正文由 `text-xs` 提到 `text-sm`。
+- 后果：拼豆导出文件明显变大，但属于一次性操作；离屏画布单边仍受 4096 约束。署名是成品图的一部分，`beadsAnnotations: false` 导出纯图案时不含署名。
+- 何时重新审视：若需要让用户自选导出倍率（1x/2x）或输出超过 4096 的印刷级图纸，应把密度做成 SaveDialog 选项并评估内存。

@@ -7,6 +7,7 @@
  *    避免数字挤成一团。
  */
 
+import type { CSSProperties } from 'react'
 import { beadsBoundaries } from '../dots'
 
 const GUIDE_COLOR = '#ff3b3b'
@@ -39,6 +40,33 @@ export function BeadsOverlay({ w, h, scale }: BeadsOverlayProps) {
   for (let i = step; i <= w; i += step) columns.push(i)
   const rows: number[] = []
   for (let j = step; j <= h; j += step) rows.push(j)
+
+  const labelFontSize = Math.max(9, Math.min(14, scale * 0.8))
+  const columnLabelStyle = (n: number): CSSProperties => ({
+    position: 'absolute',
+    left: (n - 0.5) * scale,
+    top: -BEADS_LABEL_PAD,
+    transform: 'translateX(-50%)',
+    fontSize: labelFontSize,
+    lineHeight: `${BEADS_LABEL_PAD}px`,
+    color: LABEL_COLOR,
+    fontVariantNumeric: 'tabular-nums',
+    pointerEvents: 'none',
+    whiteSpace: 'nowrap',
+  })
+  const rowLabelStyle = (n: number): CSSProperties => ({
+    position: 'absolute',
+    left: -BEADS_LABEL_PAD,
+    top: (n - 0.5) * scale,
+    transform: 'translateY(-50%)',
+    width: BEADS_LABEL_PAD - 4,
+    textAlign: 'right',
+    fontSize: labelFontSize,
+    lineHeight: 1,
+    color: LABEL_COLOR,
+    fontVariantNumeric: 'tabular-nums',
+    pointerEvents: 'none',
+  })
 
   return (
     <>
@@ -115,46 +143,49 @@ export function BeadsOverlay({ w, h, scale }: BeadsOverlayProps) {
         })}
       </svg>
 
+      {/* 列号：上、下各一条，保证大图滚动时始终能看到当前列 */}
       {columns.map((n) => (
         <span
           key={`c-${n}`}
           data-testid="beads-col-label"
+          data-side="top"
           aria-hidden
-          style={{
-            position: 'absolute',
-            left: (n - 0.5) * scale,
-            top: -BEADS_LABEL_PAD,
-            transform: 'translateX(-50%)',
-            fontSize: Math.max(8, Math.min(11, scale * 0.7)),
-            lineHeight: `${BEADS_LABEL_PAD}px`,
-            color: LABEL_COLOR,
-            fontVariantNumeric: 'tabular-nums',
-            pointerEvents: 'none',
-            whiteSpace: 'nowrap',
-          }}
+          style={columnLabelStyle(n)}
+        >
+          {n}
+        </span>
+      ))}
+      {columns.map((n) => (
+        <span
+          key={`cb-${n}`}
+          data-testid="beads-col-label"
+          data-side="bottom"
+          aria-hidden
+          style={{ ...columnLabelStyle(n), top: height }}
         >
           {n}
         </span>
       ))}
 
+      {/* 行号：左、右各一条 */}
       {rows.map((n) => (
         <span
           key={`r-${n}`}
           data-testid="beads-row-label"
+          data-side="left"
           aria-hidden
-          style={{
-            position: 'absolute',
-            left: -BEADS_LABEL_PAD,
-            top: (n - 0.5) * scale,
-            transform: 'translateY(-50%)',
-            width: BEADS_LABEL_PAD - 4,
-            textAlign: 'right',
-            fontSize: Math.max(8, Math.min(11, scale * 0.7)),
-            lineHeight: 1,
-            color: LABEL_COLOR,
-            fontVariantNumeric: 'tabular-nums',
-            pointerEvents: 'none',
-          }}
+          style={rowLabelStyle(n)}
+        >
+          {n}
+        </span>
+      ))}
+      {rows.map((n) => (
+        <span
+          key={`rb-${n}`}
+          data-testid="beads-row-label"
+          data-side="right"
+          aria-hidden
+          style={{ ...rowLabelStyle(n), left: width + 4, textAlign: 'left' }}
         >
           {n}
         </span>

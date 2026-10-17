@@ -93,6 +93,16 @@ describe('EditorPage — 工具切换', () => {
   })
 })
 
+describe('EditorPage — 缩放', () => {
+  it('自适应状态下点击放大，从当前显示倍率继续而不是回到旧手动值', () => {
+    renderEditor()
+    // 视口宽度为 0 时回落到 8x，屏幕上显示 800%
+    expect(screen.getByTestId('zoom-label').textContent).toBe('800%')
+    fireEvent.click(screen.getByLabelText('放大'))
+    expect(screen.getByTestId('zoom-label').textContent).toBe('1000%')
+  })
+})
+
 describe('EditorPage — 点阵尺寸', () => {
   it('修改宽度输入并回车触发 resize', () => {
     renderEditor()

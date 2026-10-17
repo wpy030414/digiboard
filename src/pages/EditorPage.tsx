@@ -13,6 +13,7 @@ import { BEADS_LABEL_PAD } from '@/engine/render/BeadsOverlay'
 import { useSceneStore } from '@/engine/scene-store'
 import { sceneToBase64Yaml, sceneToYaml } from '@/engine/export/to-yaml'
 import { downloadScenePng, downloadText } from '@/engine/export/to-png'
+import { beadsExportUnit } from '@/engine/export/beads-export'
 import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
 import { usePersistScene } from '@/editor/use-persist-scene'
 import { BeadsLegend } from '@/editor/BeadsLegend'
@@ -91,10 +92,18 @@ export function EditorPage() {
   const fittedScale = useAutoScale(viewportW, scene.size.w)
   const effectiveScale = autoFit ? fittedScale : scale
 
-  const setScale = useCallback((fn: (s: number) => number) => {
-    setAutoFit(false)
-    setScaleState((prev) => Math.round(fn(prev) * 100) / 100)
-  }, [])
+  const setScale = useCallback(
+    (fn: (s: number) => number) => {
+      setAutoFit(false)
+      // 自适应状态下屏幕上显示的是 fittedScale：缩放要从它接着走，
+      // 否则会从上次手动缩放值（初始 6）起跳，出现 3200% → 750% 的断崖。
+      setScaleState((prev) => {
+        const base = autoFit ? fittedScale : prev
+        return Math.round(fn(base) * 100) / 100
+      })
+    },
+    [autoFit, fittedScale],
+  )
 
   // 键盘快捷键
   useEffect(() => {
@@ -145,7 +154,8 @@ export function EditorPage() {
 
   const handleExportPng = useCallback(() => {
     void downloadScenePng(scene, `digiboard-${scene.size.w}x${scene.size.h}.png`, {
-      pixelSize: Math.max(4, Math.round(effectiveScale)),
+      // 拼豆成品与屏幕缩放无关，固定用高密度导出；普通模式仍跟随当前倍率
+      pixelSize: beads ? beadsExportUnit(scene) : Math.max(4, Math.round(effectiveScale)),
       beads,
     })
   }, [scene, effectiveScale, beads])
@@ -177,35 +187,44 @@ export function EditorPage() {
         onToggleSidebar={toggleSidebar}
       />
       <div className="flex min-h-0 flex-1">
-        <main
-          ref={viewportRef}
-          className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto bg-muted/40 p-3"
-        >
-          <div className="flex flex-col items-center gap-2">
-            <div className="relative" style={beads ? { padding: BEADS_LABEL_PAD } : undefined}>
-              <div
-                className="absolute -inset-px rounded-sm ring-1 ring-border"
-                aria-hidden
-                style={{ pointerEvents: 'none' }}
-              />
-              <SceneCanvas
-                scene={scene}
-                scale={effectiveScale}
-                mode="edit"
-                beads={beads}
-                onlyValue={beads ? beadsFilter : null}
-              />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <main
+            ref={viewportRef}
+            className="relative flex min-w-0 flex-1 overflow-auto bg-muted/40 p-3"
+          >
+            {/* m-auto 而不是 items/justify-center：内容超出视口时居中会把上/左侧
+                的溢出部分挤出可滚动区域，导致大倍率下画布顶部被吃掉且滚不上去 */}
+            <div className="m-auto flex flex-col items-center gap-2">
+              <div className="relative" style={beads ? { padding: BEADS_LABEL_PAD } : undefined}>
+                <div
+                  className="absolute -inset-px rounded-sm ring-1 ring-border"
+                  aria-hidden
+                  style={{ pointerEvents: 'none' }}
+                />
+                <SceneCanvas
+                  scene={scene}
+                  scale={effectiveScale}
+                  mode="edit"
+                  beads={beads}
+                  onlyValue={beads ? beadsFilter : null}
+                />
+              </div>
             </div>
-            {beads && pixelLayer && (
+          </main>
+          {/* 图例固定在画布区下方、撑满整栏：不随画布倍率变化，也不随画布滚走 */}
+          {beads && pixelLayer && (
+            <div
+              className="max-h-52 shrink-0 overflow-y-auto border-t bg-card p-2"
+              data-testid="beads-legend-bar"
+            >
               <BeadsLegend
                 layer={pixelLayer}
                 selectedValue={beadsFilter}
                 onSelect={setBeadsFilter}
-                width={scene.size.w * effectiveScale}
               />
-            )}
-          </div>
-        </main>
+            </div>
+          )}
+        </div>
         {/* 右侧共享栏：属性在上（60%），小组件在下（40%）；可整体收起 */}
         {sidebarOpen && (
           <aside

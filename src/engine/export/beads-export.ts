@@ -38,6 +38,9 @@ export interface BeadsExportMetrics {
   rowH: number
   swatch: number
   itemGap: number
+  /** 署名行的高度与起始 y（画布与图例之间）。 */
+  signatureH: number
+  signatureTop: number
   legendTop: number
   legend: BeadsLegendItem[]
   legendRows: BeadsLegendItem[][]
@@ -47,6 +50,8 @@ const LABEL_COLOR = '#ff8a9c'
 const MUTED_COLOR = '#9a9aa8'
 const TEXT_COLOR = '#e8e8f0'
 const FONT_FAMILY = 'ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif'
+/** 成品图署名（白色居中，夹在画布与图例之间）。 */
+const SIGNATURE = 'Powered by Digiboard. GitHub:wpy030414'
 
 /** 统计像素基座中每种颜色的数量，并按调色板顺序映射为拼豆色号。 */
 export function collectBeadsLegend(scene: Scene): BeadsLegendItem[] {
@@ -77,8 +82,9 @@ export function measureBeadsExport(scene: Scene, unit: number): BeadsExportMetri
   const rows = scene.size.h
   const boardW = cols * unit
   const boardH = rows * unit
-  const pad = Math.max(24, Math.min(36, Math.round(unit * 2.2)))
-  const font = Math.max(9, Math.min(12, Math.round(unit * 0.75)))
+  // 留白与字号都随每格像素放大：高密度导出时序号/图例/署名不会显得过小
+  const pad = Math.max(30, Math.min(56, Math.round(unit * 1.2)))
+  const font = Math.max(12, Math.min(20, Math.round(unit * 0.4)))
   const step = unit >= 16 ? 1 : 5
   const titleH = font + 8
   const rowH = font + 8
@@ -92,7 +98,8 @@ export function measureBeadsExport(scene: Scene, unit: number): BeadsExportMetri
   // 按画布宽度换行；单个条目比画布还宽时允许撑宽整体画布
   const itemWidth = (it: BeadsLegendItem) =>
     swatch + 4 + ctx.measureText(`${it.approximate ? '≈' : ''}${it.code} ×${it.count}`).width
-  let widest = boardW
+  // 署名比画布/图例更宽时也要撑开整图，否则小点阵的署名会被裁掉
+  let widest = Math.max(boardW, ctx.measureText(SIGNATURE).width)
   for (const it of legend) widest = Math.max(widest, itemWidth(it) + itemGap)
   const contentW = Math.max(boardW, widest)
 
@@ -112,8 +119,12 @@ export function measureBeadsExport(scene: Scene, unit: number): BeadsExportMetri
   if (current.length > 0) legendRows.push(current)
 
   const legendHeight = titleH + (legendRows.length > 0 ? legendRows.length * rowH : font + 6)
-  const gap = Math.max(12, Math.round(unit * 1.5))
-  const legendTop = pad + boardH + gap
+  // 画布下方还有一排列号，图例要再往下让出字体高度
+  const gap = Math.max(font + 10, Math.round(unit * 1.5))
+  // 署名行夹在画布（含下方列号）与图例之间
+  const signatureH = font + 10
+  const signatureTop = pad + boardH + gap
+  const legendTop = signatureTop + signatureH
   const width = pad * 2 + contentW
   const height = legendTop + legendHeight + pad
 
@@ -132,6 +143,8 @@ export function measureBeadsExport(scene: Scene, unit: number): BeadsExportMetri
     rowH,
     swatch,
     itemGap,
+    signatureH,
+    signatureTop,
     legendTop,
     legend,
     legendRows,
@@ -146,17 +159,27 @@ export function drawBeadsAnnotations(ctx: CanvasRenderingContext2D, m: BeadsExpo
   ctx.font = `${font}px ${FONT_FAMILY}`
   ctx.textBaseline = 'middle'
 
-  // 列号：画布上方
+  // 列号：画布上方、下方各一条
   ctx.fillStyle = LABEL_COLOR
   ctx.textAlign = 'center'
   for (let n = m.step; n <= cols; n += m.step) {
     ctx.fillText(String(n), pad + (n - 0.5) * unit, pad - font)
+    ctx.fillText(String(n), pad + (n - 0.5) * unit, pad + m.boardH + font)
   }
-  // 行号：画布左侧（右对齐，贴近画布边缘）
+  // 行号：画布左侧（右对齐）、右侧（左对齐），都贴近画布边缘
   ctx.textAlign = 'right'
   for (let n = m.step; n <= rows; n += m.step) {
     ctx.fillText(String(n), pad - 6, pad + (n - 0.5) * unit)
   }
+  ctx.textAlign = 'left'
+  for (let n = m.step; n <= rows; n += m.step) {
+    ctx.fillText(String(n), pad + m.boardW + 6, pad + (n - 0.5) * unit)
+  }
+
+  // 署名：画布与图例之间，白色居中
+  ctx.textAlign = 'center'
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(SIGNATURE, m.width / 2, m.signatureTop + m.signatureH / 2)
 
   // 图例
   ctx.textAlign = 'left'
@@ -191,6 +214,19 @@ export function drawBeadsAnnotations(ctx: CanvasRenderingContext2D, m: BeadsExpo
   }
 
   ctx.restore()
+}
+
+/** 拼豆导出的每格像素上限与单边上限。 */
+export const MAX_BEADS_EXPORT_UNIT = 48
+export const MAX_BEADS_EXPORT_SIDE = 4096
+
+/**
+ * 拼豆成品的导出密度：与屏幕缩放解耦，尽量用高密度出图；
+ * 大点阵按单边 4096 回收，避免离屏 canvas 过大。
+ */
+export function beadsExportUnit(scene: Scene): number {
+  const longest = Math.max(1, scene.size.w, scene.size.h)
+  return Math.max(8, Math.min(MAX_BEADS_EXPORT_UNIT, Math.floor(MAX_BEADS_EXPORT_SIDE / longest)))
 }
 
 /** 取一个测量用的 2D 上下文（离屏，不进入文档）。 */

@@ -122,7 +122,8 @@ export const useSceneStore = create<SceneState>((set, get) => {
     // 优先恢复上次编辑（localStorage 防抖持久化），否则新建默认场景
     scene: loadPersistedScene() ?? createDefaultScene(),
     selectedId: null,
-    tool: 'pen',
+    // 刷新后默认停在指针工具：先观察与选中，再决定是否动笔
+    tool: 'select',
     // 画笔颜色统一落在拼豆色卡上（默认粉吸附到 E19）
     brushColor: nearestBeadColor(DEFAULT_PIXEL_COLOR).hex,
     past: [],

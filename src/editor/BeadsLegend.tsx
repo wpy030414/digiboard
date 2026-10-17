@@ -18,11 +18,9 @@ interface BeadsLegendProps {
   /** 当前筛选的像素值（1..），null = 显示全部。 */
   selectedValue: number | null
   onSelect: (value: number | null) => void
-  /** 图例最大宽度（与画布对齐）。 */
-  width?: number
 }
 
-export function BeadsLegend({ layer, selectedValue, onSelect, width }: BeadsLegendProps) {
+export function BeadsLegend({ layer, selectedValue, onSelect }: BeadsLegendProps) {
   const items = useMemo(() => {
     const counts = Array.from({ length: layer.palette.length }, () => 0)
     for (const v of layer.pixels) {
@@ -46,11 +44,7 @@ export function BeadsLegend({ layer, selectedValue, onSelect, width }: BeadsLege
   const total = items.reduce((n, it) => n + it.count, 0)
 
   return (
-    <div
-      data-testid="beads-legend"
-      className="flex flex-wrap items-center gap-1.5 rounded-md border bg-card/90 p-1.5 text-xs"
-      style={width ? { maxWidth: width } : undefined}
-    >
+    <div data-testid="beads-legend" className="flex w-full flex-wrap items-center gap-1.5 text-sm">
       <span className="px-1 text-muted-foreground">
         图例 · {items.length} 色 · 共 {total} 颗
       </span>
@@ -78,7 +72,7 @@ export function BeadsLegend({ layer, selectedValue, onSelect, width }: BeadsLege
             title={selected ? '再次点击显示全部颜色' : `只显示 ${code} · ${detail}`}
           >
             <span
-              className="size-3 rounded-[2px] border border-black/30"
+              className="size-3.5 rounded-[2px] border border-black/30"
               style={{ background: it.color }}
             />
             <span className="font-mono">{code}</span>

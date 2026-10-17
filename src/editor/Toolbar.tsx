@@ -267,6 +267,7 @@ export function Toolbar({
           variant="ghost"
           size="icon-sm"
           aria-label="缩小"
+          disabled={scale <= MIN_SCALE}
           onClick={() => setScale((s) => clampScale(s / 1.25))}
         >
           <ZoomOut />
@@ -281,6 +282,7 @@ export function Toolbar({
           variant="ghost"
           size="icon-sm"
           aria-label="放大"
+          disabled={scale >= MAX_SCALE}
           onClick={() => setScale((s) => clampScale(s * 1.25))}
         >
           <ZoomIn />
@@ -348,6 +350,10 @@ function clampInt(v: string, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n))
 }
 
+/** 视图缩放上下限（自适应计算也封顶在这里，导出尺寸因此可控）。 */
+const MIN_SCALE = 0.5
+const MAX_SCALE = 32
+
 function clampScale(s: number): number {
-  return Math.min(32, Math.max(0.5, Math.round(s * 100) / 100))
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(s * 100) / 100))
 }

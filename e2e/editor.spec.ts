@@ -168,6 +168,13 @@ test.describe('编辑器 — 基础交互', () => {
     expect(await labels.count()).toBeGreaterThan(0)
     await expect(labels.first()).toHaveText(/^\d+$/)
     expect(await page.getByTestId('beads-row-label').count()).toBeGreaterThan(0)
+    // 大图四边都有序号：右列、下行同样存在
+    expect(
+      await page.locator('[data-testid="beads-col-label"][data-side="bottom"]').count(),
+    ).toBeGreaterThan(0)
+    expect(
+      await page.locator('[data-testid="beads-row-label"][data-side="right"]').count(),
+    ).toBeGreaterThan(0)
 
     // 退回普通模式后辅助叠层消失
     await page.getByTestId('beads-mode').click()
@@ -293,7 +300,15 @@ test.describe('编辑器 — 基础交互', () => {
         boundary: px(ctx, m.pad + 2 * unit + 0.5, m.pad + 1.2 * unit),
         normalBoundary: px(nctx, 2 * unit + 0.5, 1.5 * unit),
         colLabel: nonBlack(ctx, m.pad, 0, m.pad + m.boardW, m.pad),
+        bottomColLabel: nonBlack(
+          ctx,
+          m.pad,
+          m.pad + m.boardH,
+          m.pad + m.boardW,
+          m.pad + m.boardH + m.pad,
+        ),
         rowLabel: nonBlack(ctx, 0, m.pad, m.pad, m.pad + m.boardH),
+        rightRowLabel: nonBlack(ctx, m.pad + m.boardW, m.pad, m.width, m.pad + m.boardH),
         legend: nonBlack(ctx, m.pad, m.pad + m.boardH, m.width - m.pad, m.height),
         maxRed,
       }
@@ -315,7 +330,9 @@ test.describe('编辑器 — 基础交互', () => {
     expect(res.maxRed).toBeGreaterThan(120)
     // 四周序号与下方图例都真实绘制
     expect(res.colLabel).toBeGreaterThan(0)
+    expect(res.bottomColLabel).toBeGreaterThan(0)
     expect(res.rowLabel).toBeGreaterThan(0)
+    expect(res.rightRowLabel).toBeGreaterThan(0)
     expect(res.legend).toBeGreaterThan(0)
   })
 
@@ -329,17 +346,24 @@ test.describe('编辑器 — 基础交互', () => {
 
   test('工具栏选中工具高亮', async ({ page }) => {
     await gotoEditor(page)
-    const pen = page.getByTestId('tool-pen')
-    await expect(pen).toHaveAttribute('aria-checked', 'true')
+    // 刷新后默认停在指针工具
+    const pointer = page.getByTestId('tool-select')
+    await expect(pointer).toHaveAttribute('aria-checked', 'true')
     await page.getByTestId('tool-eraser').click()
     await expect(page.getByTestId('tool-eraser')).toHaveAttribute('aria-checked', 'true')
-    await expect(pen).toHaveAttribute('aria-checked', 'false')
-    const [onBg, offBg] = await page.evaluate(() => {
+    await expect(pointer).toHaveAttribute('aria-checked', 'false')
+    const [onBg, offBg, onLeft] = await page.evaluate(() => {
       const on = document.querySelector('[data-testid="tool-eraser"]')!
-      const off = document.querySelector('[data-testid="tool-pen"]')!
-      return [getComputedStyle(on).backgroundColor, getComputedStyle(off).backgroundColor]
+      const off = document.querySelector('[data-testid="tool-select"]')!
+      return [
+        getComputedStyle(on).backgroundColor,
+        getComputedStyle(off).backgroundColor,
+        getComputedStyle(on).borderLeftWidth,
+      ]
     })
     expect(onBg).not.toBe(offBg)
+    // 选中第 2 个及之后的工具时，左侧高亮线不能因边框折叠而消失
+    expect(onLeft).toBe('1px')
   })
 
   test('切换像素画笔工具', async ({ page }) => {

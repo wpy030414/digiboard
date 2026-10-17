@@ -16,8 +16,8 @@ import { BEAD_CODE_MIN_CELL, drawPixelDots } from '../dots'
 /** 画布单边最大输出像素，避免大点阵 × 高缩放撑爆 canvas 内存。 */
 const MAX_CANVAS_SIDE = 4096
 
-/** 渲染像素密度上限（每格最多多少输出像素）。 */
-const MAX_UNIT = 24
+/** 渲染像素密度上限（每格最多多少输出像素）：高分屏 + 大倍率下也要保持锐利。 */
+const MAX_UNIT = 48
 
 interface PixelCanvasProps {
   layer: PixelLayer

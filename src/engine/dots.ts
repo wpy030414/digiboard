@@ -99,9 +99,10 @@ export function drawPixelDots(
 
   const baseAlpha = ctx.globalAlpha
   const showLabels = labelCodes && unit >= BEAD_CODE_MIN_CELL
+  // 色号随格子放大，上限 20px：大倍率/高密度导出时仍清晰可读
+  const labelMaxFont = Math.min(20, Math.max(5, unit * 0.6))
+  const LABEL_FONT = 'ui-monospace, SFMono-Regular, Menlo, monospace'
   if (showLabels) {
-    const font = Math.min(10, Math.max(4, unit * 0.5))
-    ctx.font = `${font}px ui-monospace, SFMono-Regular, Menlo, monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
   }
@@ -119,9 +120,16 @@ export function drawPixelDots(
     ctx.fillStyle = hex
     ctx.fill()
 
-    // 拼豆色号：每个色块中央写小字，颜色取反以保证对比度（跟随该色透明度）
+    // 拼豆色号：每个色块中央写小字，颜色取反以保证对比度（跟随该色透明度）。
+    // 三位色号（A10/M15）在中等格子下放不下时逐步缩小字号，而不是直接不画。
     if (showLabels) {
       const bead = beadColorForHex(hex) ?? nearestBeadColor(hex)
+      let font = labelMaxFont
+      ctx.font = `${font}px ${LABEL_FONT}`
+      while (font > 5 && ctx.measureText(bead.code).width > unit * 0.92) {
+        font -= 1
+        ctx.font = `${font}px ${LABEL_FONT}`
+      }
       if (ctx.measureText(bead.code).width <= unit * 0.92) {
         ctx.fillStyle = invertedTextColor(hex)
         for (const i of cells) {

@@ -7,7 +7,7 @@ DigiBoard 电子副屏：React 19.3 + Vite+ 的点阵画布应用，三层图层
 - 本项目是什么：浏览器端电子副屏编辑器与播放页。场景 = 点阵尺寸 + 有序图层栈；图层分三类：`pixel`（圆角点阵玩具板，像素值是调色板索引——单层多色混搭；画笔颜色在顶部工具栏）、`digit`（矢量 LED 数码管，可斜切/发光/超出画布——「突破像素限制」是核心卖点，但以一块矩形占据点阵空间）、`widget`（信息流小组件，同样占据矩形，目前内置 Claude Code 会话状态）。
 - 调色板上限 221 色（`engine/beads-palette.ts`，MARD 拼豆色卡）：图片生成、画笔颜色与图例色号都对齐该色卡；`setBrushColor` 会把任意选色吸附到最近色号，画笔 tooltip 显示色号而非 HEX，色卡外颜色在图例里以 `≈色号` 标注。
 - 点阵尺寸上限 200×200（`MAX_SCENE_SIZE`）：新入口一律经 `clampSceneSize`，YAML 超限直接拒绝。
-- 拼豆模式（`beads`）：`PixelCanvas` 画直角整格，`BeadsOverlay` 叠加行列序号、每格半透灰线与 5/10 格红线，格子 ≥8px 时每个色块中央标注取反色色号；`editor/BeadsLegend` 按拼豆色号（MARD 221 色、自然排序）显示颜色计数并支持单色高亮（其余颜色降为 30% 透明度）；开关偏好存 localStorage（`digiboard.ui.beads.v1`），开启时 PNG 导出方形整格，并由 `export/beads-export.ts` 附加行列序号与图例（`beadsAnnotations: false` 可导出纯图案）。
+- 拼豆模式（`beads`）：`PixelCanvas` 画直角整格，`BeadsOverlay` 叠加行列序号、每格半透灰线与 5/10 格红线，格子 ≥8px 时每个色块中央标注取反色色号；`editor/BeadsLegend` 按拼豆色号（MARD 221 色、自然排序）显示颜色计数并支持单色高亮（其余颜色降为 30% 透明度）；开关偏好存 localStorage（`digiboard.ui.beads.v1`），开启时 PNG 导出方形整格，并由 `export/beads-export.ts` 附加四边行列序号、署名行与图例；导出密度与屏幕倍率解耦（`beadsExportUnit`，上限 48px/格），`beadsAnnotations: false` 可导出纯图案。
 - 保存入口是 `editor/SaveDialog`（工具栏「保存」/⌘S）：YAML 场景或 PNG 成品二选一，复用与导出按钮相同的处理器。
 - 新建入口是 `editor/NewSceneDialog`（工具栏「新建」/⌘N）：空白或从图片生成（`engine/image-to-pixels.ts`，cover 裁切 + 吸附到 MARD 221 色色卡）。
 - 像素层是画布基座：场景恒有且仅有一个 `pixel` 层，固定在 `layers[0]`，不出现在图层面板、不可增删/复制，内容层只能叠在它上面（`normalizeScene` 负责读档归一）。
