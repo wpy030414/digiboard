@@ -139,21 +139,6 @@
   }
 }
 
-/* 点阵画布背景：细网格，辅助像素对齐 */
-.pixel-grid-bg {
-  background-image:
-    linear-gradient(
-      to right,
-      color-mix(in oklch, var(--border) 60%, transparent) 1px,
-      transparent 1px
-    ),
-    linear-gradient(
-      to bottom,
-      color-mix(in oklch, var(--border) 60%, transparent) 1px,
-      transparent 1px
-    );
-}
-
 /* 小组件状态灯呼吸动画（busy 会话） */
 @keyframes digiboard-pulse {
   0%,

@@ -24,7 +24,7 @@ export function setPixel(
   y: number,
   w: number,
   h: number,
-  value: 0 | 1,
+  value: number,
 ): void {
   const i = indexOf(x, y, w, h)
   if (i >= 0) pixels[i] = value
@@ -45,7 +45,7 @@ export function floodFill(
   h: number,
   x: number,
   y: number,
-  value: 0 | 1,
+  value: number,
 ): void {
   const start = indexOf(x, y, w, h)
   if (start < 0) return

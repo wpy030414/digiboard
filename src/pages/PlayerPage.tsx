@@ -22,12 +22,11 @@ import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
 
 function demoScene(): Scene {
   const scene = createDefaultScene({ w: 96, h: 54 })
-  scene.background = '#0a0a0e'
   // 演示：数码管显示时间感的数字 + 底部一条像素装饰
   const digit = scene.layers.find((l) => l.type === 'digit')
   if (digit && digit.type === 'digit') {
     digit.text = '2077'
-    digit.digitHeight = 30
+    digit.digitHeight = 26
     digit.x = 18
     digit.y = 8
     digit.color = '#ff3b5c'
@@ -37,7 +36,6 @@ function demoScene(): Scene {
   }
   const px = scene.layers.find((l) => l.type === 'pixel')
   if (px && px.type === 'pixel') {
-    px.color = '#ffaacc'
     for (let x = 0; x < scene.size.w; x++) {
       if (x % 2 === 0) px.pixels[(scene.size.h - 3) * scene.size.w + x] = 1
     }

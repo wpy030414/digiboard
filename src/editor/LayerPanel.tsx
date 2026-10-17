@@ -1,5 +1,8 @@
 /**
  * 左侧图层面板：图层树（自顶向下 = z 从高到低）、增删、显隐、锁定、排序、选中。
+ *
+ * 像素层是画布基座，不是可编辑的内容图层：它不出现在列表里、不可增删，
+ * 并永远位于图层栈最底部（见 `normalizeScene` 与 store 守卫）。
  */
 
 import {
@@ -47,10 +50,10 @@ export function LayerPanel() {
   const duplicateLayer = useSceneStore((s) => s.duplicateLayer)
   const reorderLayer = useSceneStore((s) => s.reorderLayer)
   const addLayer = useSceneStore((s) => s.addLayer)
-  const addPixelLayer = useSceneStore((s) => s.addPixelLayer)
 
+  // 只列出内容层（digit/widget）；像素基座不参与图层管理
   // 面板显示顺序：z 高在上 => 反转 layers 数组
-  const displayLayers = [...scene.layers].reverse()
+  const displayLayers = scene.layers.filter((l) => l.type !== 'pixel').reverse()
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r bg-card">
@@ -73,9 +76,6 @@ export function LayerPanel() {
             <TooltipContent>添加图层</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem data-testid="add-pixel" onClick={() => addPixelLayer()}>
-              <LayoutGrid className="size-4" /> 像素层
-            </DropdownMenuItem>
             <DropdownMenuItem data-testid="add-digit" onClick={() => addLayer('digit')}>
               <Hash className="size-4" /> 数码管
             </DropdownMenuItem>
@@ -92,7 +92,7 @@ export function LayerPanel() {
       <ScrollArea className="flex-1">
         <ul className="flex flex-col gap-0.5 p-1.5" data-testid="layer-list">
           {displayLayers.map((layer, di) => {
-            const idx = scene.layers.length - 1 - di // 实际数组下标
+            const idx = scene.layers.length - 1 - di // 实际数组下标（像素基座固定在最前）
             return (
               <LayerRow
                 key={layer.id}
@@ -109,7 +109,7 @@ export function LayerPanel() {
               />
             )
           })}
-          {scene.layers.length === 0 && (
+          {displayLayers.length === 0 && (
             <li className="px-2 py-6 text-center text-xs text-muted-foreground">
               暂无图层，点右上角 + 添加
             </li>

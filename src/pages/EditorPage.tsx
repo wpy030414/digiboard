@@ -9,10 +9,15 @@ import { Toolbar } from '@/editor/Toolbar'
 import { LayerPanel } from '@/editor/LayerPanel'
 import { PropertyPanel } from '@/editor/PropertyPanel'
 import { SceneCanvas } from '@/engine/render/SceneCanvas'
+import { BEADS_LABEL_PAD } from '@/engine/render/BeadsOverlay'
 import { useSceneStore } from '@/engine/scene-store'
 import { sceneToBase64Yaml, sceneToYaml } from '@/engine/export/to-yaml'
 import { downloadScenePng, downloadText } from '@/engine/export/to-png'
 import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
+import { usePersistScene } from '@/editor/use-persist-scene'
+import { BeadsLegend } from '@/editor/BeadsLegend'
+import { loadBeadsMode, saveBeadsMode } from '@/engine/persistence'
+import type { PixelLayer } from '@/engine/types'
 
 /** 让画布按容器宽度自适应缩放（fit），并可手动覆盖。 */
 function useAutoScale(containerW: number, sceneW: number) {
@@ -29,10 +34,28 @@ export function EditorPage() {
 
   // 把场景里 Claude 小组件的 bridgeUrl 同步给状态 store（驱动 App 的 SSE 连接）
   useSyncBridgeUrl(scene)
+  // 每步编辑防抖持久化到 localStorage（刷新后可恢复）
+  usePersistScene()
 
   const [scale, setScaleState] = useState(6)
-  const [showGrid, setShowGrid] = useState(true)
   const [autoFit, setAutoFit] = useState(true)
+  const [beads, setBeadsState] = useState(() => loadBeadsMode())
+  // 图例筛选：只显示某个颜色（像素值 1..），null = 全部
+  const [beadsFilter, setBeadsFilter] = useState<number | null>(null)
+
+  const setBeads = useCallback((on: boolean) => {
+    setBeadsState(on)
+    saveBeadsMode(on)
+    if (!on) setBeadsFilter(null)
+  }, [])
+
+  const pixelLayer = scene.layers.find((l): l is PixelLayer => l.type === 'pixel')
+  const pixelLayerId = pixelLayer?.id
+
+  // 换场景/改尺寸后，旧的筛选色号可能已失效
+  useEffect(() => {
+    setBeadsFilter(null)
+  }, [pixelLayerId, scene.size.w, scene.size.h])
   const viewportRef = useRef<HTMLDivElement>(null)
   const [viewportW, setViewportW] = useState(0)
 
@@ -101,8 +124,9 @@ export function EditorPage() {
   const handleExportPng = useCallback(() => {
     void downloadScenePng(scene, `digiboard-${scene.size.w}x${scene.size.h}.png`, {
       pixelSize: Math.max(4, Math.round(effectiveScale)),
+      beads,
     })
-  }, [scene, effectiveScale])
+  }, [scene, effectiveScale, beads])
 
   const handleExportYaml = useCallback(() => {
     downloadText(sceneToYaml(scene), `digiboard-${scene.size.w}x${scene.size.h}.yml`)
@@ -118,8 +142,8 @@ export function EditorPage() {
       <Toolbar
         scale={effectiveScale}
         setScale={setScale}
-        showGrid={showGrid}
-        setShowGrid={setShowGrid}
+        beads={beads}
+        setBeads={setBeads}
         onExportPng={handleExportPng}
         onExportYaml={handleExportYaml}
         onPlay={handlePlay}
@@ -130,13 +154,29 @@ export function EditorPage() {
           ref={viewportRef}
           className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto bg-muted/40 p-3"
         >
-          <div className="relative">
-            <div
-              className="absolute -inset-px rounded-sm ring-1 ring-border"
-              aria-hidden
-              style={{ pointerEvents: 'none' }}
-            />
-            <SceneCanvas scene={scene} scale={effectiveScale} mode="edit" showGrid={showGrid} />
+          <div className="flex flex-col items-center gap-2">
+            <div className="relative" style={beads ? { padding: BEADS_LABEL_PAD } : undefined}>
+              <div
+                className="absolute -inset-px rounded-sm ring-1 ring-border"
+                aria-hidden
+                style={{ pointerEvents: 'none' }}
+              />
+              <SceneCanvas
+                scene={scene}
+                scale={effectiveScale}
+                mode="edit"
+                beads={beads}
+                onlyValue={beads ? beadsFilter : null}
+              />
+            </div>
+            {beads && pixelLayer && (
+              <BeadsLegend
+                layer={pixelLayer}
+                selectedValue={beadsFilter}
+                onSelect={setBeadsFilter}
+                width={scene.size.w * effectiveScale}
+              />
+            )}
           </div>
           <div className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">
             {scene.size.w}×{scene.size.h} · {effectiveScale}x{autoFit && ' · 自适应'}

@@ -1,8 +1,9 @@
 /**
  * 数码管矢量渲染器 —— 电子副屏的核心「突破像素限制」层。
  *
- * 与 PixelCanvas 的本质区别：这里用 SVG 浮点几何，字符块可以任意旋转、
- * 斜切、发光、亚像素定位、甚至超出画布边界，完全不被点阵网格量化。
+ * 它占据一整块矩形点阵空间（该区域的像素点被整块抠除，见 footprint.ts），
+ * 内部用 SVG 浮点几何绘制：可斜切、发光、亚像素定位、甚至超出画布边界，
+ * 完全不被点阵网格量化。旋转已取消（矩形需保持可量化）。
  * 导出 png 时此层被栅格化合成，导出 yml 时保留矢量参数。
  */
 
@@ -38,7 +39,6 @@ export const DigitLayerView = memo(function DigitLayerView({
     color,
     glow,
     glowColor,
-    rotation,
     skewX,
     skewY,
     segmentStyle,
@@ -58,7 +58,6 @@ export const DigitLayerView = memo(function DigitLayerView({
     y,
     width: localW,
     height: localH,
-    rotation,
     skewX,
     skewY,
   })
@@ -67,9 +66,15 @@ export const DigitLayerView = memo(function DigitLayerView({
 
   return (
     <svg
-      width={0}
-      height={0}
-      style={{ position: 'absolute', left: 0, top: 0, overflow: 'visible' }}
+      width="100%"
+      height="100%"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        overflow: 'visible',
+        pointerEvents: 'none',
+      }}
       data-digit-layer={layer.id}
     >
       <defs>

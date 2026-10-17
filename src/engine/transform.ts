@@ -79,7 +79,8 @@ export interface VectorLayerTransform {
   y: number
   width: number
   height: number
-  rotation: number
+  /** 旋转角度（度）。数码管/小组件已取消旋转，图层变换恒省略此字段。 */
+  rotation?: number
   skewX: number
   skewY: number
 }

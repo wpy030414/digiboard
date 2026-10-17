@@ -31,11 +31,31 @@
 
 场景坐标系：以点阵尺寸 `W×H` 为逻辑单位。三类图层按数组顺序（z 从低到高）叠放：
 
-| 图层     | 坐标             | 屏幕渲染                                                  | PNG 导出                                | 网格量化         |
-| -------- | ---------------- | --------------------------------------------------------- | --------------------------------------- | ---------------- |
-| `pixel`  | 整数格点         | `<canvas>` W×H backing + `image-rendering: pixelated`     | 逐层 ImageData → drawImage 放大         | **是**           |
-| `digit`  | 浮点，可超出画布 | `<svg>` overflow visible + matrix transform + glow filter | 序列化为 SVG 文档 → `Image` → drawImage | **否（真突破）** |
-| `widget` | 浮点             | `<div>` container-query 单位，DOM 渲染                    | `widgetLayerToSvg` 快照化为 SVG 文本卡  | 否               |
+| 图层     | 坐标             | 屏幕渲染                                                    | PNG 导出                                  | 网格量化         |
+| -------- | ---------------- | ----------------------------------------------------------- | ----------------------------------------- | ---------------- |
+| `pixel`  | 整数格点         | `<canvas>` 圆角点阵：每格一颗圆角方块（留缝），灭点 + 亮点  | 同一套 `drawPixelDots` 按输出像素密度绘制 | **是**           |
+| `digit`  | 浮点，可超出画布 | `<svg>` 铺满容器 + matrix transform + glow filter，占据矩形 | 序列化为 SVG 文档 → `Image` → drawImage   | **否（真突破）** |
+| `widget` | 浮点             | `<div>` container-query 单位，DOM 渲染，占据矩形            | `widgetLayerToSvg` 快照化为 SVG 文本卡    | 否               |
+
+**拼豆模式**（编辑器工具栏开关，偏好存 localStorage `digiboard.ui.beads.v1`）：
+像素改画直角整格、无留缝，叠加行列序号与红色标识线（5 格虚线 / 10 格实线），
+画布下方出现颜色图例（每种颜色的像素数），点击图例可只显示该颜色。
+开启时 PNG 导出同步变成直角方块并烧入红色参考线（不含序号）；关闭时导出仍是圆角点阵。
+
+**点阵尺寸上限 200×200**（`MAX_SCENE_SIZE`）：工具栏输入、新建对话框、resize 与 YAML 加载统一受此约束。
+
+**像素层是画布基座**：像素值语义为调色板索引（0=灭，n=`palette[n-1]`），
+因此单层即可混搭多色（上限 255 色）；画笔颜色在顶部工具栏，写入时自动登记新颜色。
+
+**像素层是画布基座**：场景恒有且仅有一个 `pixel` 层，固定位于 `layers[0]`
+（z 最底）。它不出现在图层面板、不可删除/复制，也不能通过「添加图层」新增；
+读档时 `normalizeScene` 会把基座归位、合并旧场景里多余像素层的亮像素。
+内容层（digit/widget）只能叠在基座之上，排序下界是 index 1。
+
+**屏幕是网格玩具板**：像素不是无缝方块，而是留缝的圆角点。数码管与小组件
+不是浮在像素点上，而是占据一整块矩形点阵空间——`computeReservedMask` 逐格
+判定被可见矢量层覆盖的格子，像素层在这些格子上既不画亮点也不画灭点（整块
+抠除）。命中测试、屏幕渲染与 PNG 导出共用 `footprint.ts` 的同一个矩形。
 
 ## 核心模块
 
@@ -46,6 +66,12 @@
 | `engine/digits.ts`               | 七段数码管：a-g 位掩码字符表、段位几何（sharp/rounded）、文本排布（含小数点）                                 |
 | `engine/transform.ts`            | 3×3 仿射矩阵：translate/rotate/skew/scale、layerToScene 及其逆、AABB 包围盒与命中测试                         |
 | `engine/pixels.ts`               | 像素原语：扫描线油漆桶、Bresenham 直线、RLE 编解码                                                            |
+| `engine/dots.ts`                 | 圆角点阵几何与绘制（灭点/按调色板分桶的亮点、留缝、圆角），屏幕与 PNG 导出共用                                |
+| `engine/footprint.ts`            | 矢量层矩形与占位掩码：`layerFootprint` / `pointInLayer` / `computeReservedMask`                               |
+| `engine/persistence.ts`          | 场景防抖持久化到 localStorage（YAML 序列化，损坏/不可用时静默降级）                                           |
+| `engine/image-to-pixels.ts`      | 图片 → 像素画：cover 裁切、4bit/通道分桶量化、最多 255 色调色板                                               |
+| `editor/NewSceneDialog.tsx`      | 新建画布对话框：指定尺寸（1–200）空白生成 / 图片生成                                                          |
+| `render/BeadsOverlay.tsx`        | 拼豆模式叠层：行列序号（≥16px/格时逐格，否则每 5 格）与 5/10 格红色标识线                                     |
 | `engine/factories.ts`            | 图层/场景工厂、resize 重采样（保留重叠区）、深拷贝（历史快照）                                                |
 | `engine/render/SceneCanvas.tsx`  | 合成容器（edit/play 共用）：图层叠放、指针交互（绘制/拖拽矢量层）                                             |
 | `engine/export/to-yaml.ts`       | 场景⇄YAML（像素 RLE），base64 变体供播放页 URL                                                                |
@@ -61,12 +87,14 @@
 
 - `engine` 不依赖任何 UI 模块（React 组件在 `engine/render/` 但只依赖 types 与纯逻辑），编辑器/播放页/导出/测试都单向依赖 engine。
 - 屏幕渲染与 PNG 导出是**两条平行管线**，共享 `digits.ts` 几何与 `transform.ts` 矩阵：React 组件走 DOM/SVG，导出走字符串序列化 + canvas 合成。改几何/变换时两条管线同时生效（这是「所见即所得」的结构保证）。
+- 像素点阵、占位抠除、PNG 合成三者共用 `dots.ts` 与 `footprint.ts`：屏幕与导出不存在第二套几何。
 - 小组件经 `registerWidget` 注册表解耦：`WidgetLayerView` 只知道 `WidgetKind → renderer` 映射，`main.tsx` 副作用导入完成注册。
 - Claude 状态数据流：bridge（SSE）→ `use-claude-status`（连接生命周期）→ `status-store`（zustand 单例）→ `ClaudeStatusWidget`（订阅渲染）。场景里小组件图层的 `config.bridgeUrl` 经 `use-sync-bridge-url` 写回 store，连接自动跟随。
 
 ## 数据流
 
-1. **编辑**：UI 事件 → store action（离散操作先 `pushHistory`）→ 不可变更新 → 订阅组件重渲染。
+1. **编辑**：UI 事件 → store action（离散操作先 `pushHistory`）→ 不可变更新 → 订阅组件重渲染 →
+   `usePersistScene` 防抖 400ms 将场景写入 localStorage（刷新后自动恢复）。
 2. **导出 YAML**：scene → 像素层 RLE → js-yaml dump →（可选 base64）→ 下载/URL。
 3. **导出 PNG**：背景 fillRect → 像素层 ImageData 放大 drawImage（smoothing off）→ 矢量层 SVG 字符串 → data-URL Image → drawImage，全程按 layers 原始顺序。
 4. **播放**：URL/文件 YAML → `sceneFromYaml` → PlayerPage 局部 state → SceneCanvas(mode=play)。
@@ -80,7 +108,8 @@
 
 ## 重要技术边界
 
-- **量化 vs 矢量**：像素层永远整数格点（LED 颗粒感是特性不是缺陷）；矢量层永远浮点（突破网格是核心卖点）。两者只在导出 PNG 时于 canvas 上汇合。
+- **量化 vs 矢量**：像素层永远整数格点（LED 颗粒感是特性不是缺陷）；矢量层永远浮点（突破网格是核心卖点），但以一个可量化矩形占据点阵空间——矩形必须无旋转（旋转会让「占位」失去唯一解）。两者只在导出 PNG 时于 canvas 上汇合。
+- **无网格辅助线**：屏幕由点阵本身表达格子，编辑器不再叠加网格线层。
 - **不可变约定**：历史栈与当前场景可能共享结构；任何像素写入前必须 clone（`withPixelLayer`），任何结构修改必须展开复制。违反此约定会破坏撤销/重做。
 - **dev-only 测试钩子**：`window.__digiboard` 仅在 `import.meta.env.DEV` 挂载（E2E 确定性断言用），生产构建不暴露。
 - **bridge 安全边界**：只监听 127.0.0.1；绝不读 `.key` 令牌文件；CORS 默认只放行 localhost/127.0.0.1，可用 `DIGIBOARD_ORIGIN` 收紧到确切源。

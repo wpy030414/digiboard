@@ -1,5 +1,5 @@
 /**
- * 顶部工具栏：工具切换、撤销/重做、点阵尺寸、视图缩放、网格、导出、播放。
+ * 顶部工具栏：新建、工具切换、画笔颜色、撤销/重做、点阵尺寸、视图缩放、导出、播放。
  */
 
 import { useEffect, useState } from 'react'
@@ -11,7 +11,6 @@ import {
   Pipette,
   Undo2,
   Redo2,
-  Grid3x3,
   Play,
   FileCode2,
   Image as ImageIcon,
@@ -24,22 +23,24 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Switch } from '@/components/ui/switch'
 import { useSceneStore } from '@/engine/scene-store'
-import type { Tool } from '@/engine/types'
+import { MAX_SCENE_SIZE, type Tool } from '@/engine/types'
+import { NewSceneDialog } from './NewSceneDialog'
 
 const TOOLS: Array<{ id: Tool; icon: typeof Pen; label: string; key: string }> = [
   { id: 'select', icon: MousePointer2, label: '选择 / 移动矢量层', key: 'V' },
   { id: 'pen', icon: Pen, label: '像素画笔', key: 'B' },
   { id: 'eraser', icon: Eraser, label: '橡皮擦', key: 'E' },
   { id: 'fill', icon: PaintBucket, label: '油漆桶填充', key: 'G' },
-  { id: 'picker', icon: Pipette, label: '取色（点亮/熄灭）', key: 'I' },
+  { id: 'picker', icon: Pipette, label: '取色', key: 'I' },
 ]
 
 interface ToolbarProps {
   scale: number
   setScale: (fn: (s: number) => number) => void
-  showGrid: boolean
-  setShowGrid: (v: boolean) => void
+  beads: boolean
+  setBeads: (v: boolean) => void
   onExportPng: () => void
   onExportYaml: () => void
   onPlay: () => void
@@ -48,8 +49,8 @@ interface ToolbarProps {
 export function Toolbar({
   scale,
   setScale,
-  showGrid,
-  setShowGrid,
+  beads,
+  setBeads,
   onExportPng,
   onExportYaml,
   onPlay,
@@ -57,12 +58,15 @@ export function Toolbar({
   const scene = useSceneStore((s) => s.scene)
   const tool = useSceneStore((s) => s.tool)
   const setTool = useSceneStore((s) => s.setTool)
+  const brushColor = useSceneStore((s) => s.brushColor)
+  const setBrushColor = useSceneStore((s) => s.setBrushColor)
   const resize = useSceneStore((s) => s.resize)
-  const newScene = useSceneStore((s) => s.newScene)
   const undo = useSceneStore((s) => s.undo)
   const redo = useSceneStore((s) => s.redo)
   const canUndo = useSceneStore((s) => s.past.length > 0)
   const canRedo = useSceneStore((s) => s.future.length > 0)
+
+  const [newOpen, setNewOpen] = useState(false)
 
   // 尺寸输入：本地草稿，Enter/blur 时提交（避免每敲一位就 resize）
   const [wDraft, setWDraft] = useState(String(scene.size.w))
@@ -73,8 +77,8 @@ export function Toolbar({
   }, [scene.size.w, scene.size.h])
 
   const applySize = () => {
-    const w = clampInt(wDraft, 1, 512)
-    const h = clampInt(hDraft, 1, 512)
+    const w = clampInt(wDraft, 1, MAX_SCENE_SIZE)
+    const h = clampInt(hDraft, 1, MAX_SCENE_SIZE)
     if (w !== scene.size.w || h !== scene.size.h) resize({ w, h })
     setWDraft(String(w))
     setHDraft(String(h))
@@ -89,12 +93,12 @@ export function Toolbar({
             variant="ghost"
             size="icon-sm"
             data-testid="new-scene"
-            onClick={() => newScene({ w: 80, h: 60 })}
+            onClick={() => setNewOpen(true)}
           >
             <SquareDashed />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>新建 80×60 场景</TooltipContent>
+        <TooltipContent>新建画布</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="mx-0.5 h-6" />
@@ -110,7 +114,12 @@ export function Toolbar({
         {TOOLS.map((t) => (
           <Tooltip key={t.id}>
             <TooltipTrigger asChild>
-              <ToggleGroupItem value={t.id} data-testid={`tool-${t.id}`} aria-label={t.label}>
+              <ToggleGroupItem
+                value={t.id}
+                data-testid={`tool-${t.id}`}
+                aria-label={t.label}
+                className="aria-checked:border-primary aria-checked:bg-primary/20 aria-checked:text-primary aria-checked:shadow-inner"
+              >
                 <t.icon className="size-4" />
               </ToggleGroupItem>
             </TooltipTrigger>
@@ -120,6 +129,28 @@ export function Toolbar({
           </Tooltip>
         ))}
       </ToggleGroup>
+
+      <Separator orientation="vertical" className="mx-0.5 h-6" />
+
+      {/* 画笔颜色：单层多色混搭，用哪色点哪色 */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <label
+            className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md border border-input bg-background"
+            data-testid="brush-color"
+            aria-label="画笔颜色"
+          >
+            <span className="size-4 rounded-sm" style={{ background: brushColor }} />
+            <input
+              type="color"
+              value={brushColor}
+              onChange={(e) => setBrushColor(e.target.value)}
+              className="absolute inset-0 size-full cursor-pointer opacity-0"
+            />
+          </label>
+        </TooltipTrigger>
+        <TooltipContent>画笔颜色 {brushColor}</TooltipContent>
+      </Tooltip>
 
       <Separator orientation="vertical" className="mx-0.5 h-6" />
 
@@ -163,7 +194,7 @@ export function Toolbar({
         <Input
           type="number"
           min={1}
-          max={512}
+          max={MAX_SCENE_SIZE}
           value={wDraft}
           data-testid="size-w"
           onChange={(e) => setWDraft(e.target.value)}
@@ -175,7 +206,7 @@ export function Toolbar({
         <Input
           type="number"
           min={1}
-          max={512}
+          max={MAX_SCENE_SIZE}
           value={hDraft}
           data-testid="size-h"
           onChange={(e) => setHDraft(e.target.value)}
@@ -213,22 +244,18 @@ export function Toolbar({
         </Button>
       </div>
 
-      {/* 网格 */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={showGrid ? 'secondary' : 'ghost'}
-            size="icon-sm"
-            data-testid="toggle-grid"
-            aria-label="网格"
-            aria-pressed={showGrid}
-            onClick={() => setShowGrid(!showGrid)}
-          >
-            <Grid3x3 />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>网格辅助线</TooltipContent>
-      </Tooltip>
+      <Separator orientation="vertical" className="mx-0.5 h-6" />
+
+      {/* 拼豆模式：直角无缝隙像素 + 行列序号 + 红色标识线 */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground">拼豆模式</span>
+        <Switch
+          checked={beads}
+          onCheckedChange={setBeads}
+          data-testid="beads-mode"
+          aria-label="拼豆模式"
+        />
+      </div>
 
       <div className="flex-1" />
 
@@ -246,6 +273,8 @@ export function Toolbar({
         <Play className="size-4" />
         播放
       </Button>
+
+      <NewSceneDialog open={newOpen} onOpenChange={setNewOpen} />
     </header>
   )
 }

@@ -10,6 +10,7 @@ import { create } from 'zustand'
 import type {
   DigitLayer,
   Layer,
+  PixelArtSource,
   PixelLayer,
   Scene,
   SceneSize,
@@ -17,15 +18,18 @@ import type {
   WidgetLayer,
   WidgetKind,
 } from './types'
+import { DEFAULT_PIXEL_COLOR } from './types'
 import {
   cloneLayer,
   cloneScene,
+  createBlankScene,
   createDefaultScene,
   createLayer,
-  createPixelLayer,
+  normalizeScene,
   resizeScene,
 } from './factories'
 import { bresenhamLine, floodFill, setPixel } from './pixels'
+import { loadPersistedScene } from './persistence'
 
 const MAX_HISTORY = 100
 
@@ -34,33 +38,33 @@ interface SceneState {
   /** 当前选中图层 id。 */
   selectedId: string | null
   tool: Tool
-  /** 像素画笔当前前景（点亮）——单色，作用于所有像素层。 */
-  brushValue: 0 | 1
+  /** 当前画笔颜色。写入时自动登记进像素基座调色板，实现单层多色混搭。 */
+  brushColor: string
 
   past: Scene[]
   future: Scene[]
 
   // —— 场景级操作 ——
   setScene: (scene: Scene) => void
-  newScene: (size: SceneSize) => void
+  /** 新建空白场景；传入 `source` 时直接作为像素基座内容（图片生成用）。 */
+  newScene: (size: SceneSize, source?: PixelArtSource) => void
   resize: (size: SceneSize) => void
-  setBackground: (bg: string | null) => void
 
   // —— 图层管理 ——
+  /** 追加内容层（digit/widget）。像素层是唯一基座，传入 'pixel' 不会新增。 */
   addLayer: (type: Layer['type'], widgetKind?: WidgetKind) => string
-  addPixelLayer: () => string
   removeLayer: (id: string) => void
   duplicateLayer: (id: string) => string | null
   updateLayer: <T extends Layer>(id: string, patch: Partial<T>) => void
   reorderLayer: (id: string, dir: 'up' | 'down' | 'top' | 'bottom') => void
   select: (id: string | null) => void
   setTool: (t: Tool) => void
-  setBrushValue: (v: 0 | 1) => void
+  setBrushColor: (color: string) => void
 
-  // —— 像素绘制 ——
-  drawPixel: (x: number, y: number, value: 0 | 1) => void
-  drawLine: (x0: number, y0: number, x1: number, y1: number, value: 0 | 1) => void
-  fillAt: (x: number, y: number, value: 0 | 1) => void
+  // —— 像素绘制（color=null 表示擦除）——
+  drawPixel: (x: number, y: number, color: string | null) => void
+  drawLine: (x0: number, y0: number, x1: number, y1: number, color: string | null) => void
+  fillAt: (x: number, y: number, color: string | null) => void
   clearPixelLayer: (id: string) => void
 
   // —— 历史 ——
@@ -85,6 +89,20 @@ function withPixelLayer(layers: Layer[], id: string, mutate: (px: PixelLayer) =>
   })
 }
 
+/**
+ * 把画笔颜色解析为像素值：0=灭，1..=调色板下标+1。
+ * 新颜色自动登记进调色板（上限 255，超出时退回首色）。
+ * 必须作用于「已 clone 的图层」，否则会破坏历史快照的不可变性。
+ */
+function colorToValue(layer: PixelLayer, color: string | null): number {
+  if (color === null) return 0
+  const idx = layer.palette.indexOf(color)
+  if (idx >= 0) return idx + 1
+  if (layer.palette.length >= 255) return 1
+  layer.palette.push(color)
+  return layer.palette.length
+}
+
 function firstPixelId(scene: Scene): string | null {
   const px = scene.layers.find((l) => l.type === 'pixel')
   return px ? px.id : null
@@ -100,26 +118,39 @@ export const useSceneStore = create<SceneState>((set, get) => {
   }
 
   return {
-    scene: createDefaultScene(),
+    // 优先恢复上次编辑（localStorage 防抖持久化），否则新建默认场景
+    scene: loadPersistedScene() ?? createDefaultScene(),
     selectedId: null,
     tool: 'pen',
-    brushValue: 1,
+    brushColor: DEFAULT_PIXEL_COLOR,
     past: [],
     future: [],
 
     commitHistory: () => pushHistory(get().scene),
 
-    setScene: (scene) => set({ scene, selectedId: scene.layers[0]?.id ?? null }),
+    setScene: (scene) => {
+      const normalized = normalizeScene(scene)
+      set({
+        scene: normalized,
+        selectedId: normalized.layers.find((l) => l.type !== 'pixel')?.id ?? null,
+      })
+    },
 
-    newScene: (size) =>
+    newScene: (size, source) =>
       set(() => {
-        const scene = createDefaultScene(size)
-        return {
-          scene,
-          selectedId: scene.layers[scene.layers.length - 1]?.id ?? null,
-          past: [],
-          future: [],
+        // 「新建」得到一张干净空白画布：只有像素基座，不带数码管/小组件
+        const scene = normalizeScene(createBlankScene(size))
+        if (source) {
+          const base = scene.layers[0]
+          if (base?.type === 'pixel' && source.pixels.length === base.w * base.h) {
+            scene.layers[0] = {
+              ...base,
+              palette: [...source.palette],
+              pixels: new Uint8Array(source.pixels),
+            }
+          }
         }
+        return { scene, selectedId: null, past: [], future: [] }
       }),
 
     resize: (size) =>
@@ -128,10 +159,10 @@ export const useSceneStore = create<SceneState>((set, get) => {
         return { scene: resizeScene(s.scene, size) }
       }),
 
-    setBackground: (bg) => set((s) => ({ scene: { ...s.scene, background: bg } })),
-
     addLayer: (type, widgetKind) => {
       const scene = get().scene
+      // 像素层是唯一基座：不可新增，直接返回现有基座 id
+      if (type === 'pixel') return scene.layers.find((l) => l.type === 'pixel')?.id ?? ''
       pushHistory(scene)
       const layer = createLayer(
         type,
@@ -145,23 +176,17 @@ export const useSceneStore = create<SceneState>((set, get) => {
       return layer.id
     },
 
-    addPixelLayer: () => {
-      const scene = get().scene
-      pushHistory(scene)
-      const layer = createPixelLayer(scene.size)
-      set((s) => ({
-        scene: { ...s.scene, layers: [...s.scene.layers, layer] },
-        selectedId: layer.id,
-      }))
-      return layer.id
-    },
-
     removeLayer: (id) =>
       set((s) => {
+        const target = s.scene.layers.find((l) => l.id === id)
+        // 像素基座不可删除
+        if (!target || target.type === 'pixel') return s
         pushHistory(s.scene)
         const layers = s.scene.layers.filter((l) => l.id !== id)
         const selectedId =
-          s.selectedId === id ? (layers[layers.length - 1]?.id ?? null) : s.selectedId
+          s.selectedId === id
+            ? (layers.filter((l) => l.type !== 'pixel').at(-1)?.id ?? null)
+            : s.selectedId
         return { scene: { ...s.scene, layers }, selectedId }
       }),
 
@@ -169,8 +194,10 @@ export const useSceneStore = create<SceneState>((set, get) => {
       const scene = get().scene
       const idx = scene.layers.findIndex((l) => l.id === id)
       if (idx < 0) return null
-      pushHistory(scene)
       const src = scene.layers[idx]!
+      // 像素基座不可复制（唯一性）
+      if (src.type === 'pixel') return null
+      pushHistory(scene)
       const copy = cloneLayer(src)
       // 新 id：clone 保留了旧 id，需替换
       const newId = `${src.type.slice(0, 2)}-${Date.now().toString(36)}-cp`
@@ -194,32 +221,37 @@ export const useSceneStore = create<SceneState>((set, get) => {
         const layers = [...s.scene.layers]
         const idx = layers.findIndex((l) => l.id === id)
         if (idx < 0) return s
-        const [item] = layers.splice(idx, 1)
+        const item = layers[idx]!
+        // 像素基座固定在最底部，不参与排序
+        if (item.type === 'pixel') return s
+        // 内容层的下界：基座之上（基座始终位于 index 0）
+        const floor = layers.some((l) => l.type === 'pixel') ? 1 : 0
+        layers.splice(idx, 1)
         let target: number
         switch (dir) {
           case 'up':
             target = Math.min(layers.length, idx + 1)
             break
           case 'down':
-            target = Math.max(0, idx - 1)
+            target = Math.max(floor, idx - 1)
             break
           case 'top':
             target = layers.length
             break
           case 'bottom':
-            target = 0
+            target = floor
             break
         }
-        layers.splice(target, 0, item!)
+        layers.splice(target, 0, item)
         return { scene: { ...s.scene, layers } }
       }),
 
     select: (id) => set({ selectedId: id }),
     setTool: (t) => set({ tool: t }),
-    setBrushValue: (v) => set({ brushValue: v }),
+    setBrushColor: (color) => set({ brushColor: color }),
 
     // —— 像素绘制（作用于选中的像素层，或第一个像素层）——
-    drawPixel: (x, y, value) => {
+    drawPixel: (x, y, color) => {
       const s = get()
       const targetId = resolvePixelTarget(s.scene, s.selectedId)
       if (!targetId) return
@@ -227,13 +259,13 @@ export const useSceneStore = create<SceneState>((set, get) => {
         scene: {
           ...st.scene,
           layers: withPixelLayer(st.scene.layers, targetId, (px) => {
-            setPixel(px.pixels, x, y, px.w, px.h, value)
+            setPixel(px.pixels, x, y, px.w, px.h, colorToValue(px, color))
           }),
         },
       }))
     },
 
-    drawLine: (x0, y0, x1, y1, value) => {
+    drawLine: (x0, y0, x1, y1, color) => {
       const s = get()
       const targetId = resolvePixelTarget(s.scene, s.selectedId)
       if (!targetId) return
@@ -242,13 +274,14 @@ export const useSceneStore = create<SceneState>((set, get) => {
         scene: {
           ...st.scene,
           layers: withPixelLayer(st.scene.layers, targetId, (px) => {
+            const value = colorToValue(px, color)
             for (const p of pts) setPixel(px.pixels, p.x, p.y, px.w, px.h, value)
           }),
         },
       }))
     },
 
-    fillAt: (x, y, value) => {
+    fillAt: (x, y, color) => {
       const s = get()
       const targetId = resolvePixelTarget(s.scene, s.selectedId)
       if (!targetId) return
@@ -257,7 +290,7 @@ export const useSceneStore = create<SceneState>((set, get) => {
         scene: {
           ...st.scene,
           layers: withPixelLayer(st.scene.layers, targetId, (px) => {
-            floodFill(px.pixels, px.w, px.h, x, y, value)
+            floodFill(px.pixels, px.w, px.h, x, y, colorToValue(px, color))
           }),
         },
       }))

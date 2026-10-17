@@ -7,7 +7,6 @@ import { expect, type Page } from '@playwright/test'
 
 export interface SceneSnapshot {
   size: { w: number; h: number }
-  background: string | null
   layerCount: number
   layers: Array<{ id: string; type: string; visible: boolean; name: string }>
 }
@@ -18,7 +17,6 @@ export async function getScene(page: Page): Promise<SceneSnapshot> {
     const s = (window as any).__digiboard.scene.getState()
     return {
       size: { ...s.scene.size },
-      background: s.scene.background,
       layerCount: s.scene.layers.length,
       layers: s.scene.layers.map((l: any) => ({
         id: l.id,
@@ -65,11 +63,11 @@ export async function drawPixelViaStore(
   page: Page,
   x: number,
   y: number,
-  value: 0 | 1 = 1,
+  color: string | null = '#ffaacc',
 ): Promise<void> {
   await page.evaluate(
-    ({ x, y, value }) => (window as any).__digiboard.scene.getState().drawPixel(x, y, value),
-    { x, y, value },
+    ({ x, y, color }) => (window as any).__digiboard.scene.getState().drawPixel(x, y, color),
+    { x, y, color },
   )
 }
 
@@ -87,9 +85,7 @@ export async function getDigitLayer(page: Page) {
   return page.evaluate(() => {
     const s = (window as any).__digiboard.scene.getState()
     const dg = s.scene.layers.find((l: any) => l.type === 'digit')
-    return dg
-      ? { text: dg.text, rotation: dg.rotation, skewX: dg.skewX, digitHeight: dg.digitHeight }
-      : null
+    return dg ? { text: dg.text, skewX: dg.skewX, digitHeight: dg.digitHeight } : null
   })
 }
 

@@ -34,6 +34,45 @@ describe('to-yaml — round-trip 无损', () => {
     expect(getPixel(px2.pixels, 8, 8, 16)).toBe(0)
   })
 
+  it('调色板多色 round-trip 无损', () => {
+    const scene = createDefaultScene({ w: 8, h: 8 })
+    const px = scene.layers[0] as PixelLayer
+    px.palette = ['#ff0000', '#00ff00', '#0000ff']
+    px.pixels[0] = 1
+    px.pixels[1] = 2
+    px.pixels[2] = 3
+    const back = sceneFromYaml(sceneToYaml(scene))
+    const px2 = back.layers[0] as PixelLayer
+    expect(px2.palette).toEqual(['#ff0000', '#00ff00', '#0000ff'])
+    expect(getPixel(px2.pixels, 0, 0, 8)).toBe(1)
+    expect(getPixel(px2.pixels, 1, 0, 8)).toBe(2)
+    expect(getPixel(px2.pixels, 2, 0, 8)).toBe(3)
+  })
+
+  it('旧版单色 color 字段迁移为调色板首色', () => {
+    const yml = [
+      'version: 1',
+      'size: { w: 4, h: 4 }',
+      'layers:',
+      '  - id: px-1',
+      '    name: 像素层',
+      '    type: pixel',
+      '    visible: true',
+      '    locked: false',
+      '    opacity: 1',
+      "    color: '#abcdef'",
+      "    offColor: '#17171d'",
+      '    w: 4',
+      '    h: 4',
+      '    pixels: { encoding: rle, w: 4, h: 4, data: [1, 1, 15, 0] }',
+    ].join('\n')
+    const back = sceneFromYaml(yml)
+    const px = back.layers[0] as PixelLayer
+    expect(px.palette).toEqual(['#abcdef'])
+    expect(getPixel(px.pixels, 0, 0, 4)).toBe(1)
+    expect(px).not.toHaveProperty('color')
+  })
+
   it('数码管全部参数无损还原', () => {
     const scene = createDefaultScene({ w: 40, h: 30 })
     const dg = scene.layers[1] as DigitLayer
@@ -42,7 +81,6 @@ describe('to-yaml — round-trip 无损', () => {
       x: 12.5,
       y: -3.25,
       digitHeight: 48,
-      rotation: 33,
       skewX: -12,
       skewY: 7,
       glow: 0.77,
@@ -58,7 +96,6 @@ describe('to-yaml — round-trip 无损', () => {
     expect(dg2.x).toBe(12.5)
     expect(dg2.y).toBe(-3.25)
     expect(dg2.digitHeight).toBe(48)
-    expect(dg2.rotation).toBe(33)
     expect(dg2.skewX).toBe(-12)
     expect(dg2.skewY).toBe(7)
     expect(dg2.glow).toBeCloseTo(0.77)
@@ -76,9 +113,11 @@ describe('to-yaml — round-trip 无损', () => {
     wg.y = 6
     wg.width = 30
     wg.height = 12
-    const scene: Scene = { version: 1, size: { w: 40, h: 30 }, background: null, layers: [wg] }
+    const scene: Scene = { version: 1, size: { w: 40, h: 30 }, layers: [wg] }
     const back = sceneFromYaml(sceneToYaml(scene))
-    const wg2 = back.layers[0] as WidgetLayer
+    // 场景缺像素层：读档自动补齐基座到最底部
+    expect(back.layers[0]!.type).toBe('pixel')
+    const wg2 = back.layers.find((l) => l.type === 'widget') as WidgetLayer
     expect(wg2.widgetKind).toBe('claude-status')
     expect(wg2.config).toEqual({ bridgeUrl: 'http://localhost:9999/events', showTokens: false })
     expect(wg2.x).toBe(5)
@@ -89,7 +128,6 @@ describe('to-yaml — round-trip 无损', () => {
     const scene: Scene = {
       version: 1,
       size: { w: 10, h: 10 },
-      background: '#123456',
       layers: [
         createPixelLayer({ w: 10, h: 10 }),
         createDigitLayer({ w: 10, h: 10 }),
@@ -101,17 +139,34 @@ describe('to-yaml — round-trip 无损', () => {
     scene.layers[0]!.opacity = 0.5
     const back = sceneFromYaml(sceneToYaml(scene))
     expect(back.layers.map((l) => l.type)).toEqual(['pixel', 'digit', 'widget'])
-    expect(back.background).toBe('#123456')
     expect(back.layers[1]!.visible).toBe(false)
     expect(back.layers[2]!.locked).toBe(true)
     expect(back.layers[0]!.opacity).toBe(0.5)
   })
 
-  it('透明背景（null）保留', () => {
-    const scene = createDefaultScene({ w: 10, h: 10 })
-    scene.background = null
+  it('读档时像素基座归一到最底部，多余的像素层被合并', () => {
+    const pxA = createPixelLayer({ w: 4, h: 4 })
+    const pxB = createPixelLayer({ w: 4, h: 4 })
+    pxA.pixels[1] = 1 // (1,0)
+    pxB.pixels[4 * 2 + 3] = 1 // (3,2)
+    const scene: Scene = {
+      version: 1,
+      size: { w: 4, h: 4 },
+      layers: [createDigitLayer({ w: 4, h: 4 }), pxA, pxB],
+    }
     const back = sceneFromYaml(sceneToYaml(scene))
-    expect(back.background).toBeNull()
+    expect(back.layers[0]!.type).toBe('pixel')
+    expect(back.layers.filter((l) => l.type === 'pixel')).toHaveLength(1)
+    const merged = back.layers[0] as PixelLayer
+    expect(getPixel(merged.pixels, 1, 0, 4)).toBe(1)
+    expect(getPixel(merged.pixels, 3, 2, 4)).toBe(1)
+  })
+
+  it('旧 YAML 里的 background 字段被忽略（底色固定黑色）', () => {
+    const scene = createDefaultScene({ w: 10, h: 10 })
+    const yml = sceneToYaml(scene).replace('layers:', 'background: "#ff0000"\nlayers:')
+    const back = sceneFromYaml(yml)
+    expect('background' in back).toBe(false)
   })
 })
 
@@ -150,6 +205,11 @@ describe('to-yaml — 错误处理', () => {
     expect(() => sceneFromYaml('size:\n  w: 4\n  h: 4\nlayers: 3')).toThrow(/layers/)
   })
 
+  it('超过 200×200 的场景拒绝加载', () => {
+    const yml = ['version: 1', 'size: { w: 500, h: 60 }', 'layers: []'].join('\n')
+    expect(() => sceneFromYaml(yml)).toThrow(/尺寸超限/)
+  })
+
   it('YAML 语法错误抛错', () => {
     expect(() => sceneFromYaml(':\n  - bad: [')).toThrow()
   })
@@ -160,7 +220,6 @@ describe('to-yaml — 紧凑性', () => {
     const scene: Scene = {
       version: 1,
       size: { w: 200, h: 200 },
-      background: null,
       layers: [createPixelLayer({ w: 200, h: 200 })],
     }
     const yml = sceneToYaml(scene)

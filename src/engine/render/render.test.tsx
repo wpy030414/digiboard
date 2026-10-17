@@ -10,23 +10,38 @@ import {
   createWidgetLayer,
   createDefaultScene,
 } from '../factories'
-import type { PixelLayer, Scene } from '../types'
+import { DEFAULT_OFF_DOT_COLOR, type Scene } from '../types'
 
 // —— mock canvas 2d context（jsdom 无真实实现）——
-let lastImageData: ImageData | null = null
-let createdW = 0
-let createdH = 0
+interface DotTrace {
+  x: number
+  y: number
+  size: number
+  radius: number
+}
+interface FillTrace {
+  fillStyle: string
+  dots: DotTrace[]
+}
+
+let fills: FillTrace[] = []
+let path: DotTrace[] = []
 
 beforeAll(() => {
   const fakeCtx = {
+    fillStyle: '',
     clearRect: () => {},
-    createImageData: (w: number, h: number) => {
-      createdW = w
-      createdH = h
-      return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) } as unknown as ImageData
+    beginPath: () => {
+      path = []
     },
-    putImageData: (img: ImageData) => {
-      lastImageData = img
+    roundRect: (x: number, y: number, w: number, _h: number, radius: number) => {
+      path.push({ x, y, size: w, radius })
+    },
+    rect: (x: number, y: number, w: number) => {
+      path.push({ x, y, size: w, radius: 0 })
+    },
+    fill: () => {
+      fills.push({ fillStyle: String(fakeCtx.fillStyle), dots: path.slice() })
     },
   }
   HTMLCanvasElement.prototype.getContext = vi.fn(
@@ -35,45 +50,62 @@ beforeAll(() => {
 })
 
 afterEach(() => {
-  lastImageData = null
-  createdW = 0
-  createdH = 0
+  fills = []
+  path = []
 })
 
-describe('PixelCanvas — 渲染与像素写入', () => {
-  it('渲染 canvas，尺寸 = 网格 × scale', () => {
-    const layer: PixelLayer = { ...createPixelLayer({ w: 8, h: 6 }), color: '#ff0000' }
+describe('PixelCanvas — 圆角点阵玩具板', () => {
+  it('canvas 显示尺寸 = 网格 × scale，绘制按输出像素密度', () => {
+    const layer = createPixelLayer({ w: 8, h: 6 })
     const { container } = render(<PixelCanvas layer={layer} scale={5} />)
     const canvas = container.querySelector('canvas')!
     expect(canvas).toBeTruthy()
     expect(canvas.style.width).toBe('40px')
     expect(canvas.style.height).toBe('30px')
-    expect(canvas.style.imageRendering).toBe('pixelated')
+    // backing store 跟随设备像素比（jsdom 下 dpr=1，故每格 5 输出像素）
+    expect(canvas.width).toBe(8 * 5)
+    expect(canvas.height).toBe(6 * 5)
   })
 
-  it('backing store 为 W×H（网格量化，非屏幕像素）', () => {
-    const layer = createPixelLayer({ w: 10, h: 4 })
-    render(<PixelCanvas layer={layer} scale={7} />)
-    expect(createdW).toBe(10)
-    expect(createdH).toBe(4)
+  it('每格都画一颗灭点圆角方块', () => {
+    const layer = createPixelLayer({ w: 4, h: 3 })
+    render(<PixelCanvas layer={layer} scale={4} />)
+    const off = fills[0]!
+    expect(off.fillStyle).toBe(DEFAULT_OFF_DOT_COLOR)
+    expect(off.dots).toHaveLength(12)
+    // 圆角矩形而非整格：留缝 + 圆角
+    expect(off.dots[0]!.size).toBeLessThan(4)
+    expect(off.dots[0]!.radius).toBeGreaterThan(0)
   })
 
-  it('点亮的像素被写入 ImageData（含颜色解析）', () => {
+  it('点亮的像素在灭点之上追加亮点', () => {
     const layer = createPixelLayer({ w: 4, h: 4 })
-    layer.color = '#ff8800'
-    layer.pixels[0] = 1 // (0,0)
-    layer.pixels[5] = 1 // (1,1)
+    layer.palette = ['#ff8800']
+    layer.pixels[0] = 1
+    layer.pixels[5] = 1
     render(<PixelCanvas layer={layer} scale={3} />)
-    const data = lastImageData!.data
-    const [r, g, b, a] = hexToRgba('#ff8800')
-    expect(data[0]).toBe(r)
-    expect(data[1]).toBe(g)
-    expect(data[2]).toBe(b)
-    expect(data[3]).toBe(a)
-    // (1,1) => index 5*4=20
-    expect(data[20]).toBe(r)
-    // 未点亮像素 alpha=0
-    expect(data[4 + 3]).toBe(0)
+    const on = fills[1]!
+    expect(on.fillStyle).toBe('#ff8800')
+    expect(on.dots).toHaveLength(2)
+    expect(on.dots[0]).toMatchObject({ x: 3 * 0.16, y: 3 * 0.16 })
+  })
+
+  it('被矢量层占据的格子整块抠除（mask）', () => {
+    const layer = createPixelLayer({ w: 4, h: 3 })
+    const mask = new Uint8Array(12)
+    mask[0] = 1
+    mask[5] = 1
+    render(<PixelCanvas layer={layer} scale={4} mask={mask} />)
+    expect(fills[0]!.dots).toHaveLength(10)
+  })
+
+  it('灭点颜色为空时不画灭点，只画亮点', () => {
+    const layer = createPixelLayer({ w: 2, h: 2 })
+    layer.offColor = ''
+    layer.pixels[0] = 1
+    render(<PixelCanvas layer={layer} scale={4} />)
+    expect(fills).toHaveLength(1)
+    expect(fills[0]!.fillStyle).toBe(layer.palette[0])
   })
 
   it('透明度反映 opacity', () => {
@@ -140,15 +172,14 @@ describe('DigitLayerView — 矢量突破像素限制', () => {
     expect(Math.max(...ys)).toBeGreaterThan(10)
   })
 
-  it('旋转与斜切进入变换矩阵', () => {
-    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '8', rotation: 30, skewX: 12 })
+  it('斜切进入变换矩阵（旋转已取消）', () => {
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '8', skewX: 12 })
     const { container } = render(<DigitLayerView layer={layer} scale={1} />)
     const inner = container.querySelector('g g')!
     const t = inner.getAttribute('transform')!
-    // 有旋转/斜切时 b、c 分量非零
     const nums = t.match(/-?\d+\.?\d*/g)!.map(Number)
-    expect(Math.abs(nums[1]!)).toBeGreaterThan(0.01) // b
-    expect(Math.abs(nums[2]!)).toBeGreaterThan(0.01) // c
+    expect(Math.abs(nums[1]!)).toBeLessThan(1e-6) // b
+    expect(Math.abs(nums[2]!)).toBeGreaterThan(0.01) // c（skewX）
   })
 
   it('glow>0 注入 filter 定义', () => {
@@ -218,7 +249,6 @@ describe('SceneCanvas — 多层合成', () => {
     const scene: Scene = {
       version: 1,
       size: { w: 10, h: 10 },
-      background: null,
       layers: [
         createPixelLayer({ w: 10, h: 10 }),
         createDigitLayer({ w: 10, h: 10 }),
@@ -227,21 +257,9 @@ describe('SceneCanvas — 多层合成', () => {
     }
     const { container } = render(<SceneCanvas scene={scene} scale={2} mode="edit" />)
     const el = container.querySelector('[data-testid="scene-canvas"]')!
-    const kids = Array.from(el.children).filter((c) => !c.classList.contains('pixel-grid-bg'))
+    const kids = Array.from(el.children)
     expect(kids[0]!.tagName).toBe('CANVAS')
     expect(kids[1]!.tagName).toBe('svg') // SVG 元素 tagName 保留小写
     expect(kids[2]!.getAttribute('data-widget-layer')).toBeTruthy()
-  })
-
-  it('showGrid 在 edit 模式渲染网格辅助层', () => {
-    const scene = createDefaultScene({ w: 20, h: 15 })
-    const { container } = render(<SceneCanvas scene={scene} scale={4} mode="edit" showGrid />)
-    expect(container.querySelector('.pixel-grid-bg')).toBeTruthy()
-  })
-
-  it('play 模式不渲染网格辅助层', () => {
-    const scene = createDefaultScene({ w: 20, h: 15 })
-    const { container } = render(<SceneCanvas scene={scene} scale={4} mode="play" showGrid />)
-    expect(container.querySelector('.pixel-grid-bg')).toBeFalsy()
   })
 })

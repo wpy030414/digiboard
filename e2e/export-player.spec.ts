@@ -8,7 +8,7 @@ test.describe('导出 — YAML', () => {
   test('导出 YAML 下载文件，内容可解析且尺寸正确', async ({ page }) => {
     await gotoEditor(page)
     // 画点内容再导出
-    await drawPixelViaStore(page, 4, 4, 1)
+    await drawPixelViaStore(page, 4, 4)
     await setDigitTextViaStore(page, '1234')
 
     const downloadPromise = page.waitForEvent('download')
@@ -31,7 +31,7 @@ test.describe('导出 — YAML', () => {
 
   test('导出的 YAML 经 sceneFromYaml 往返无损', async ({ page }) => {
     await gotoEditor(page)
-    await drawPixelViaStore(page, 7, 9, 1)
+    await drawPixelViaStore(page, 7, 9)
     await setDigitTextViaStore(page, '8888')
 
     // 在浏览器内直接做 YAML round-trip（复用应用自身的序列化器）
@@ -55,7 +55,7 @@ test.describe('导出 — YAML', () => {
 test.describe('导出 — PNG（真实 canvas 栅格化）', () => {
   test('导出 PNG 下载文件，为有效 PNG 且尺寸=点阵×pixelSize', async ({ page }) => {
     await gotoEditor(page)
-    await drawPixelViaStore(page, 10, 10, 1)
+    await drawPixelViaStore(page, 10, 10)
     await setDigitTextViaStore(page, '2077')
 
     const downloadPromise = page.waitForEvent('download')
@@ -76,7 +76,7 @@ test.describe('导出 — PNG（真实 canvas 栅格化）', () => {
 
   test('renderSceneToCanvas 在真实浏览器合成三层（含矢量数码管栅格化）', async ({ page }) => {
     await gotoEditor(page)
-    await drawPixelViaStore(page, 5, 5, 1)
+    await drawPixelViaStore(page, 5, 5)
     await setDigitTextViaStore(page, '99')
 
     // 在浏览器内调用导出合成，验证 canvas 尺寸与非空像素
@@ -113,7 +113,7 @@ test.describe('导出 — PNG（真实 canvas 栅格化）', () => {
 test.describe('播放页 — 场景还原', () => {
   test('编辑器「播放」跳转 /play 并携带场景，还原尺寸与图层', async ({ page }) => {
     await gotoEditor(page)
-    await drawPixelViaStore(page, 6, 6, 1)
+    await drawPixelViaStore(page, 6, 6)
     await setDigitTextViaStore(page, '7777')
 
     await page.getByTestId('play').click()
@@ -136,7 +136,7 @@ test.describe('播放页 — 场景还原', () => {
 
   test('播放页还原的数码管文本与像素与编辑态一致', async ({ page }) => {
     await gotoEditor(page)
-    await drawPixelViaStore(page, 12, 8, 1)
+    await drawPixelViaStore(page, 12, 8)
     await setDigitTextViaStore(page, '4242')
     await page.getByTestId('play').click()
     await expect(page.getByTestId('player-page')).toBeVisible()

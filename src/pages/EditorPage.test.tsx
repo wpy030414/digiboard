@@ -28,7 +28,7 @@ beforeEach(() => {
     scene: createDefaultScene({ w: 80, h: 60 }),
     selectedId: null,
     tool: 'pen',
-    brushValue: 1,
+    brushColor: '#ffaacc',
     past: [],
     future: [],
   })
@@ -104,12 +104,12 @@ describe('EditorPage — 点阵尺寸', () => {
     expect(store().scene.size.h).toBe(60)
   })
 
-  it('尺寸被夹紧到 [1,512]', () => {
+  it('尺寸被夹紧到 [1,200]', () => {
     renderEditor()
     const wInput = screen.getByTestId('size-w') as HTMLInputElement
     fireEvent.change(wInput, { target: { value: '9999' } })
     fireEvent.keyDown(wInput, { key: 'Enter' })
-    expect(store().scene.size.w).toBe(512)
+    expect(store().scene.size.w).toBe(200)
   })
 })
 
@@ -125,10 +125,10 @@ describe('EditorPage — 图层管理', () => {
     expect(store().scene.layers.at(-1)!.type).toBe('digit')
   })
 
-  it('图层面板渲染所有图层行', () => {
+  it('图层面板不显示像素基座，只显示内容层', () => {
     renderEditor()
-    // 默认 1 像素 + 1 数码管
-    expect(screen.getByTestId('layer-row-pixel')).toBeTruthy()
+    // 默认 1 像素基座 + 1 数码管：基座不进入图层列表
+    expect(screen.queryByTestId('layer-row-pixel')).toBeNull()
     expect(screen.getByTestId('layer-row-digit')).toBeTruthy()
   })
 
@@ -148,7 +148,7 @@ describe('EditorPage — 撤销重做按钮', () => {
 
   it('产生历史后撤销可用并可回退', () => {
     renderEditor()
-    act(() => store().fillAt(0, 0, 1)) // 触发一次带历史的操作
+    act(() => store().fillAt(0, 0, '#ffaacc')) // 触发一次带历史的操作
     // store 更新后按钮应启用（重新读 disabled）
     expect((screen.getByTestId('undo') as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(screen.getByTestId('undo'))
@@ -158,7 +158,7 @@ describe('EditorPage — 撤销重做按钮', () => {
 
   it('键盘 ⌘Z 撤销', () => {
     renderEditor()
-    act(() => store().fillAt(0, 0, 1))
+    act(() => store().fillAt(0, 0, '#ffaacc'))
     fireEvent.keyDown(window, { key: 'z', metaKey: true })
     const px = store().scene.layers.find((l) => l.type === 'pixel')!
     expect(px.type === 'pixel' && px.pixels.every((v) => v === 0)).toBe(true)

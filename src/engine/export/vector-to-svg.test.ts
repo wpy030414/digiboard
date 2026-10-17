@@ -168,16 +168,15 @@ describe('vector-to-svg — 场景级序列化', () => {
     expect(svg).toContain('idle')
   })
 
-  it('旋转/斜切进入变换矩阵', () => {
+  it('斜切进入变换矩阵（旋转已取消）', () => {
     const scene = createDefaultScene({ w: 40, h: 30 })
     const digit = scene.layers.find((l) => l.type === 'digit') as DigitLayer
-    digit.rotation = 30
     digit.skewX = 12
     const svg = vectorLayerToSvgDoc(digit, scene, 1)
     const m = svg.match(/matrix\(([-\d.\s]+)\)/)
     expect(m).toBeTruthy()
     const nums = (m?.[1] ?? '').trim().split(/\s+/).map(Number)
-    expect(Math.abs(nums[1] ?? 0)).toBeGreaterThan(0.01) // b 分量（旋转/斜切）
-    expect(Math.abs(nums[2] ?? 0)).toBeGreaterThan(0.01) // c 分量
+    expect(Math.abs(nums[1] ?? 0)).toBeLessThan(1e-6) // b 分量（无旋转）
+    expect(Math.abs(nums[2] ?? 0)).toBeGreaterThan(0.01) // c 分量（skewX）
   })
 })

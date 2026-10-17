@@ -3,23 +3,29 @@
  *
  * 布局：一个尺寸为 `size.w*scale × size.h*scale` 的相对定位容器，
  * 各图层按 `scene.layers` 顺序（z 从低到高）绝对定位叠放：
- *   - PixelLayer   → <canvas>（网格量化）
- *   - DigitLayer   → <svg>（矢量浮层，突破网格）
- *   - WidgetLayer  → <div>（浮点 DOM）
+ *   - PixelLayer   → <canvas>（圆角点阵玩具板）
+ *   - DigitLayer   → <svg>（矢量矩形，占据整块点阵空间）
+ *   - WidgetLayer  → <div>（浮点 DOM，同样占据矩形空间）
+ *
+ * 矢量层不是浮在像素点之上：它占据的矩形格子会被整块抠除
+ * （computeReservedMask），像素层在这些格子上不画任何点。
  *
  * 交互（仅 edit 模式）：
  *   - pen/eraser/fill/picker：指针 → 场景网格坐标，驱动像素绘制
  *   - select：命中测试顶层矢量层，拖拽移动
  */
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import type { DigitLayer, Layer, Scene, WidgetLayer } from '../types'
+import { SCREEN_BACKGROUND } from '../types'
 import { useSceneStore } from '../scene-store'
-import { layerBounds, pointInBounds, type Vec2 } from '../transform'
+import type { Vec2 } from '../transform'
+import { computeReservedMask, layerFootprint, pointInLayer } from '../footprint'
 import { getPixel } from '../pixels'
 import { PixelCanvas } from './PixelCanvas'
 import { DigitLayerView } from './DigitLayerView'
 import { WidgetLayerView } from './WidgetLayerView'
+import { BeadsOverlay } from './BeadsOverlay'
 
 export type SceneMode = 'edit' | 'play'
 
@@ -27,12 +33,21 @@ interface SceneCanvasProps {
   scene: Scene
   scale: number
   mode: SceneMode
-  /** 显示网格辅助线（仅 edit）。 */
-  showGrid?: boolean
+  /** 拼豆模式：直角无缝隙像素 + 行列序号 + 5/10 格红色标识线。 */
+  beads?: boolean
+  /** 图例筛选：只显示该像素值的亮点（null = 全部）。 */
+  onlyValue?: number | null
   className?: string
 }
 
-export function SceneCanvas({ scene, scale, mode, showGrid = false, className }: SceneCanvasProps) {
+export function SceneCanvas({
+  scene,
+  scale,
+  mode,
+  beads = false,
+  onlyValue = null,
+  className,
+}: SceneCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const drawing = useRef(false)
   const last = useRef<Vec2 | null>(null)
@@ -44,10 +59,16 @@ export function SceneCanvas({ scene, scale, mode, showGrid = false, className }:
     origY: number
   } | null>(null)
 
+  // 被可见矢量层占据的格子：像素层在这些格子上整块留空
+  const reservedMask = useMemo(
+    () => computeReservedMask(scene.layers, scene.size.w, scene.size.h),
+    [scene.layers, scene.size.w, scene.size.h],
+  )
+
   const select = useSceneStore((s) => s.select)
   const selectedId = useSceneStore((s) => s.selectedId)
   const tool = useSceneStore((s) => s.tool)
-  const brushValue = useSceneStore((s) => s.brushValue)
+  const brushColor = useSceneStore((s) => s.brushColor)
 
   /** 屏幕坐标 → 场景坐标（浮点）。 */
   const toScene = useCallback(
@@ -65,9 +86,9 @@ export function SceneCanvas({ scene, scale, mode, showGrid = false, className }:
   const drawAt = useCallback(
     (scenePt: Vec2, prev: Vec2 | null) => {
       const st = useSceneStore.getState()
-      const value = st.brushValue
+      const color = st.brushColor
       if (tool === 'pen' || tool === 'eraser') {
-        const v: 0 | 1 = tool === 'eraser' ? 0 : value
+        const v = tool === 'eraser' ? null : color
         const g = toGrid(scenePt)
         if (prev) {
           const pg = toGrid(prev)
@@ -77,20 +98,18 @@ export function SceneCanvas({ scene, scale, mode, showGrid = false, className }:
         }
       } else if (tool === 'fill') {
         const g = toGrid(scenePt)
-        st.fillAt(g.x, g.y, value)
+        st.fillAt(g.x, g.y, color)
       } else if (tool === 'picker') {
         const g = toGrid(scenePt)
-        const px = st.scene.layers.find((l) => l.id === st.selectedId && l.type === 'pixel')
-        const target = (
-          px?.type === 'pixel' ? px : st.scene.layers.find((l) => l.type === 'pixel')
-        ) as { pixels: Uint8Array; w: number } | undefined
-        if (target) {
-          const lit = getPixel(target.pixels, g.x, g.y, target.w)
-          st.setBrushValue(lit ? 1 : 0)
+        const target = st.scene.layers.find((l) => l.type === 'pixel')
+        if (target && target.type === 'pixel') {
+          const value = getPixel(target.pixels, g.x, g.y, target.w)
+          const picked = value > 0 ? target.palette[value - 1] : null
+          if (picked) st.setBrushColor(picked)
         }
       }
     },
-    [tool, brushValue, toGrid],
+    [tool, brushColor, toGrid],
   )
 
   const onPointerDown = useCallback(
@@ -174,26 +193,12 @@ export function SceneCanvas({ scene, scale, mode, showGrid = false, className }:
         position: 'relative',
         width: scene.size.w * scale,
         height: scene.size.h * scale,
-        background: scene.background ?? 'transparent',
+        background: SCREEN_BACKGROUND,
         overflow: 'visible',
         cursor,
         touchAction: 'none',
       }}
     >
-      {showGrid && mode === 'edit' && (
-        <div
-          aria-hidden
-          className="pixel-grid-bg"
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundSize: `${scale}px ${scale}px`,
-            pointerEvents: 'none',
-            opacity: 0.5,
-          }}
-        />
-      )}
-
       {scene.layers.map((layer) => {
         if (!layer.visible) return null
         return (
@@ -203,9 +208,14 @@ export function SceneCanvas({ scene, scale, mode, showGrid = false, className }:
             scale={scale}
             selected={layer.id === selectedId}
             mode={mode}
+            beads={beads}
+            onlyValue={onlyValue}
+            reservedMask={reservedMask}
           />
         )
       })}
+
+      {beads && <BeadsOverlay w={scene.size.w} h={scene.size.h} scale={scale} />}
     </div>
   )
 }
@@ -216,11 +226,17 @@ function LayerSlot({
   scale,
   selected,
   mode,
+  beads,
+  onlyValue,
+  reservedMask,
 }: {
   layer: Layer
   scale: number
   selected: boolean
   mode: SceneMode
+  beads: boolean
+  onlyValue: number | null
+  reservedMask: Uint8Array
 }) {
   const commonStyle: React.CSSProperties = { position: 'absolute', left: 0, top: 0 }
 
@@ -229,6 +245,9 @@ function LayerSlot({
       <PixelCanvas
         layer={layer}
         scale={scale}
+        mask={reservedMask}
+        beads={beads}
+        onlyValue={onlyValue}
         style={{
           ...commonStyle,
           outline: selected && mode === 'edit' ? '1px solid #ffaacc' : 'none',
@@ -242,41 +261,14 @@ function LayerSlot({
   return <WidgetLayerView layer={layer} scale={scale} selected={selected && mode === 'edit'} />
 }
 
-/** 命中测试：返回顶层第一个包围盒包含点 p 的矢量层（digit/widget）。 */
+/** 命中测试：返回顶层第一个矩形包含点 p 的矢量层（digit/widget）。 */
 function hitTestVector(layers: Layer[], p: Vec2): (DigitLayer | WidgetLayer) | null {
   for (let i = layers.length - 1; i >= 0; i--) {
     const l = layers[i]!
     if (!l.visible || l.locked) continue
     if (l.type !== 'digit' && l.type !== 'widget') continue
-    const t = vectorTransformOf(l)
-    const b = layerBounds(t)
-    if (pointInBounds(p, b, Math.min(t.width, t.height) * 0.02)) return l
+    const t = layerFootprint(l)
+    if (pointInLayer(p, l, Math.min(t.width, t.height) * 0.02)) return l
   }
   return null
-}
-
-function vectorTransformOf(l: DigitLayer | WidgetLayer) {
-  if (l.type === 'digit') {
-    // 数码管宽度按文本长度近似（命中测试用，宽松即可）
-    const charW = l.digitHeight * l.aspect
-    const width = Math.max(charW, charW * l.text.length)
-    return {
-      x: l.x,
-      y: l.y,
-      width,
-      height: l.digitHeight,
-      rotation: l.rotation,
-      skewX: l.skewX,
-      skewY: l.skewY,
-    }
-  }
-  return {
-    x: l.x,
-    y: l.y,
-    width: l.width,
-    height: l.height,
-    rotation: l.rotation,
-    skewX: 0,
-    skewY: 0,
-  }
 }

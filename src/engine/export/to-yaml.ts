@@ -11,7 +11,8 @@
 
 import { dump, load } from 'js-yaml'
 import type { DigitLayer, Layer, PixelLayer, Scene, WidgetLayer } from '../types'
-import { SCENE_VERSION } from '../types'
+import { DEFAULT_OFF_DOT_COLOR, DEFAULT_PIXEL_COLOR, MAX_SCENE_SIZE, SCENE_VERSION } from '../types'
+import { normalizeScene } from '../factories'
 import { rleDecode, rleEncode } from '../pixels'
 
 /** YAML 中像素数据的表示。 */
@@ -29,7 +30,6 @@ type SerializedLayer = SerializedPixelLayer | DigitLayer | WidgetLayer
 interface SerializedScene {
   version: number
   size: { w: number; h: number }
-  background: string | null
   layers: SerializedLayer[]
 }
 
@@ -38,7 +38,6 @@ export function sceneToSerializable(scene: Scene): SerializedScene {
   return {
     version: SCENE_VERSION,
     size: { w: scene.size.w, h: scene.size.h },
-    background: scene.background,
     layers: scene.layers.map(serializeLayer),
   }
 }
@@ -58,22 +57,37 @@ function serializeLayer(layer: Layer): SerializedLayer {
 }
 
 /** 可序列化对象 → 场景（RLE 还原为 Uint8Array）。 */
+function assertSize(w: number, h: number): void {
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) {
+    throw new Error(`无效点阵尺寸 ${w}×${h}`)
+  }
+  if (w > MAX_SCENE_SIZE || h > MAX_SCENE_SIZE) {
+    throw new Error(`点阵尺寸超限 ${w}×${h}（上限 ${MAX_SCENE_SIZE}×${MAX_SCENE_SIZE}）`)
+  }
+}
+
 export function sceneFromSerializable(obj: SerializedScene): Scene {
-  return {
+  assertSize(obj.size.w, obj.size.h)
+  return normalizeScene({
     version: obj.version ?? SCENE_VERSION,
     size: { w: obj.size.w, h: obj.size.h },
-    background: obj.background ?? null,
     layers: (obj.layers ?? []).map(deserializeLayer),
-  }
+  })
 }
 
 function deserializeLayer(raw: SerializedLayer): Layer {
   if (raw.type !== 'pixel') return raw as DigitLayer | WidgetLayer
-  const { pixels, ...rest } = raw as SerializedPixelLayer
+  const { pixels, ...rest } = raw as SerializedPixelLayer & { color?: string }
   const w = pixels.w ?? rest.w
   const h = pixels.h ?? rest.h
+  assertSize(w, h)
+  // 旧版单色场景用 `color` 字段：迁移为调色板首色（像素值 1 仍指向它）
+  const { color: legacyColor, ...layerRest } = rest as typeof rest & { color?: string }
   return {
-    ...rest,
+    ...layerRest,
+    palette: layerRest.palette ?? (legacyColor ? [legacyColor] : [DEFAULT_PIXEL_COLOR]),
+    // 旧场景没有 offColor：补默认灭点色，保持「玩具板」观感
+    offColor: rest.offColor ?? DEFAULT_OFF_DOT_COLOR,
     w,
     h,
     pixels: rleDecode(pixels.data ?? [], w, h),

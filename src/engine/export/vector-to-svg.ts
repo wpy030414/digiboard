@@ -43,7 +43,6 @@ export function digitLayerToSvg(layer: DigitLayer, scale: number): string {
     y: layer.y,
     width: localW,
     height: layer.digitHeight,
-    rotation: layer.rotation,
     skewX: layer.skewX,
     skewY: layer.skewY,
   })
@@ -97,7 +96,6 @@ export function widgetLayerToSvg(
     y: layer.y,
     width: layer.width,
     height: layer.height,
-    rotation: layer.rotation,
     skewX: 0,
     skewY: 0,
   })

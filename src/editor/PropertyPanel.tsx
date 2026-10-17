@@ -1,19 +1,16 @@
 /**
  * 右侧属性面板：按选中图层类型分发编辑控件。
- *  - 无选中：场景属性（背景色）
- *  - pixel：颜色、清空、画笔明暗
- *  - digit：文本、几何、变换（旋转/斜切）、发光、段位样式 —— 「突破像素」的核心调参
+ *  - 无选中（或像素基座）：仅提示选中图层
+ *  - digit：文本、几何、变换（斜切）、发光、段位样式 —— 「突破像素」的核心调参
  *  - widget：小组件配置（Claude 会话状态：桥接地址、显示项）
  */
 
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Select,
   SelectContent,
@@ -21,9 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Eraser } from 'lucide-react'
 import { useSceneStore, useSelectedLayer } from '@/engine/scene-store'
-import type { DigitLayer, Layer, PixelLayer, WidgetLayer } from '@/engine/types'
+import type { DigitLayer, Layer, WidgetLayer } from '@/engine/types'
 
 export function PropertyPanel() {
   const layer = useSelectedLayer()
@@ -35,10 +31,8 @@ export function PropertyPanel() {
       <Separator />
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-4 p-3">
-          {layer === null ? (
+          {layer === null || layer.type === 'pixel' ? (
             <SceneProps />
-          ) : layer.type === 'pixel' ? (
-            <PixelProps layer={layer} />
           ) : layer.type === 'digit' ? (
             <DigitProps layer={layer} />
           ) : (
@@ -97,83 +91,10 @@ function CommonProps({ layer }: { layer: Layer }) {
 }
 
 function SceneProps() {
-  const scene = useSceneStore((s) => s.scene)
-  const setBackground = useSceneStore((s) => s.setBackground)
   return (
     <Section title="场景">
-      <p className="text-xs text-muted-foreground">
-        点阵尺寸 {scene.size.w} × {scene.size.h}
-      </p>
-      <Field label="画布背景">
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={scene.background ?? '#000000'}
-            data-testid="prop-bg"
-            disabled={scene.background === null}
-            onChange={(e) => setBackground(e.target.value)}
-            className="size-8 cursor-pointer rounded border"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="prop-bg-transparent"
-            onClick={() => setBackground(scene.background === null ? '#101014' : null)}
-          >
-            {scene.background === null ? '设为不透明' : '透明背景'}
-          </Button>
-        </div>
-      </Field>
       <p className="text-xs text-muted-foreground">选中一个图层以编辑其属性。</p>
     </Section>
-  )
-}
-
-function PixelProps({ layer }: { layer: PixelLayer }) {
-  const updateLayer = useSceneStore((s) => s.updateLayer)
-  const brushValue = useSceneStore((s) => s.brushValue)
-  const setBrushValue = useSceneStore((s) => s.setBrushValue)
-  const clearPixelLayer = useSceneStore((s) => s.clearPixelLayer)
-
-  return (
-    <>
-      <CommonProps layer={layer} />
-      <Separator />
-      <Section title="像素画笔">
-        <Field label="前景色（单色像素）">
-          <input
-            type="color"
-            value={layer.color}
-            data-testid="prop-pixel-color"
-            onChange={(e) => updateLayer<PixelLayer>(layer.id, { color: e.target.value })}
-            className="h-8 w-full cursor-pointer rounded border"
-          />
-        </Field>
-        <Field label="画笔模式">
-          <Tabs
-            value={brushValue === 1 ? 'on' : 'off'}
-            onValueChange={(v) => setBrushValue(v === 'on' ? 1 : 0)}
-          >
-            <TabsList className="w-full">
-              <TabsTrigger value="on" className="flex-1" data-testid="brush-on">
-                点亮
-              </TabsTrigger>
-              <TabsTrigger value="off" className="flex-1" data-testid="brush-off">
-                熄灭
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </Field>
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="clear-pixel"
-          onClick={() => clearPixelLayer(layer.id)}
-        >
-          <Eraser className="size-4" /> 清空本层
-        </Button>
-      </Section>
-    </>
   )
 }
 
@@ -284,16 +205,6 @@ function DigitProps({ layer }: { layer: DigitLayer }) {
 
       <Separator />
       <Section title="变换">
-        <Field label={`旋转 ${layer.rotation}°`}>
-          <Slider
-            value={[layer.rotation]}
-            min={-180}
-            max={180}
-            step={1}
-            data-testid="prop-rotation"
-            onValueChange={([v]) => set('rotation', v ?? 0)}
-          />
-        </Field>
         <Field label={`X 斜切 ${layer.skewX}°`}>
           <Slider
             value={[layer.skewX]}

@@ -2,44 +2,26 @@
  * PNG 导出：三层合成到一张离屏 canvas → Blob。
  *
  * 合成顺序（与屏幕一致，按 layers 数组 z 从低到高）：
- *  1. 背景色（若 background 非 null）
- *  2. 像素层：逐层画到 W×H 临时 canvas 再放大合成（保留硬边颗粒）
- *  3. 矢量层：序列化为 SVG 文档 → Image → drawImage（栅格化，含发光/旋转/斜切）
+ *  1. 固定黑色底（屏幕底色，与屏幕渲染一致）
+ *  2. 像素层：逐格画圆角点阵（灭点 + 亮点），被矢量层占据的格子整块抠除
+ *  3. 矢量层：序列化为 SVG 文档 → Image → drawImage（栅格化，含发光/斜切）
  *
  * @param scene   场景
  * @param pixelSize 输出像素密度：每个点阵像素对应多少输出像素。默认 8，
  *                  即 80×60 点阵导出 640×480 png。矢量层随之等比栅格化。
  */
 
-import type { DigitLayer, PixelLayer, Scene, WidgetLayer } from '../types'
-import { hexToRgba } from '../render/PixelCanvas'
+import type { DigitLayer, Scene, WidgetLayer } from '../types'
+import { SCREEN_BACKGROUND } from '../types'
+import { drawBeadsGuides, drawPixelDots } from '../dots'
+import { computeReservedMask } from '../footprint'
 import { vectorLayerToSvgDoc, type WidgetSnapshot } from './vector-to-svg'
 
 export interface ExportPngOptions {
   pixelSize?: number
   snapshots?: Map<string, WidgetSnapshot>
-}
-
-/** 把单个像素层画到一个 W×H 的 canvas（每个像素一格）。 */
-function pixelLayerToCanvas(layer: PixelLayer): HTMLCanvasElement {
-  const c = document.createElement('canvas')
-  c.width = layer.w
-  c.height = layer.h
-  const ctx = c.getContext('2d')!
-  const [r, g, b, a] = hexToRgba(layer.color)
-  const img = ctx.createImageData(layer.w, layer.h)
-  const data = img.data
-  for (let i = 0; i < layer.pixels.length; i++) {
-    if (layer.pixels[i]) {
-      const o = i * 4
-      data[o] = r
-      data[o + 1] = g
-      data[o + 2] = b
-      data[o + 3] = a
-    }
-  }
-  ctx.putImageData(img, 0, 0)
-  return c
+  /** 拼豆模式：直角无缝隙像素 + 5/10 格红色参考线。 */
+  beads?: boolean
 }
 
 /** SVG 字符串 → HTMLImageElement（异步，onload 完成）。 */
@@ -64,6 +46,7 @@ export async function renderSceneToCanvas(
   opts: ExportPngOptions = {},
 ): Promise<HTMLCanvasElement> {
   const pixelSize = opts.pixelSize ?? 8
+  const beads = opts.beads ?? false
   const w = scene.size.w * pixelSize
   const h = scene.size.h * pixelSize
 
@@ -72,13 +55,14 @@ export async function renderSceneToCanvas(
   canvas.height = h
   const ctx = canvas.getContext('2d')!
 
-  // 1. 背景
-  if (scene.background) {
-    ctx.fillStyle = scene.background
-    ctx.fillRect(0, 0, w, h)
-  }
+  // 1. 固定黑色底
+  ctx.fillStyle = SCREEN_BACKGROUND
+  ctx.fillRect(0, 0, w, h)
 
-  // 2. 预栅格化所有可见矢量层（并行），按 layer.id 索引
+  // 2. 被可见矢量层占据的格子：像素层在这些格子上整块留空
+  const reservedMask = computeReservedMask(scene.layers, scene.size.w, scene.size.h)
+
+  // 3. 预栅格化所有可见矢量层（并行），按 layer.id 索引
   const vectorImgs = new Map<string, HTMLImageElement>()
   const vectorLayers = scene.layers.filter(
     (l): l is DigitLayer | WidgetLayer => l.visible && (l.type === 'digit' || l.type === 'widget'),
@@ -90,14 +74,12 @@ export async function renderSceneToCanvas(
     }),
   )
 
-  // 3. 按 z 顺序逐层合成
+  // 4. 按 z 顺序逐层合成
   for (const layer of scene.layers) {
     if (!layer.visible) continue
     if (layer.type === 'pixel') {
-      const pc = pixelLayerToCanvas(layer)
       ctx.globalAlpha = layer.opacity
-      ctx.imageSmoothingEnabled = false
-      ctx.drawImage(pc, 0, 0, layer.w, layer.h, 0, 0, w, h)
+      drawPixelDots(ctx, layer, { unit: pixelSize, mask: reservedMask, beads })
       ctx.globalAlpha = 1
     } else {
       const img = vectorImgs.get(layer.id)
@@ -107,6 +89,9 @@ export async function renderSceneToCanvas(
       }
     }
   }
+
+  // 5. 拼豆参考线：只作为导出成品的辅助标识，叠在最上层
+  if (beads) drawBeadsGuides(ctx, scene.size.w, scene.size.h, pixelSize)
 
   return canvas
 }

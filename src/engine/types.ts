@@ -29,12 +29,19 @@ export interface LayerBase {
  * 像素画层。每个像素仅 on/off（单色），颜色由图层 `color` 决定。
  * 需要多色时叠加多个 PixelLayer 即可。
  *
- * `pixels` 为长度 `w*h` 的 Uint8Array，索引 `y*w+x`，值 0=灭 1=亮。
+ * 屏幕是网格玩具板：每格渲染成一颗圆角方块（留缝），
+ * 点亮的格按调色板上色，未点亮的格用 `offColor` 画暗点。
+ *
+ * `pixels` 为长度 `w*h` 的 Uint8Array，索引 `y*w+x`，值 0=灭，n(1..)=调色板
+ * `palette[n-1]` —— 单层即可混搭多种颜色（最多 255 色）。
  * store 保证不可变更新：任何写入前都会 clone，历史栈因此可安全共享引用。
  */
 export interface PixelLayer extends LayerBase {
   type: 'pixel'
-  color: string
+  /** 调色板：像素值 n 取 `palette[n-1]`。索引顺序即上色顺序。 */
+  palette: string[]
+  /** 灭点颜色（未点亮格的暗色圆点）。设为空字符串则不画灭点。 */
+  offColor: string
   /** 像素网格宽度（= 创建时的 scene.size.w，resize 时同步）。 */
   w: number
   h: number
@@ -48,7 +55,11 @@ export type SegmentStyle = 'sharp' | 'rounded'
  * LED 数码管层（矢量浮层）。
  *
  * 定位与变换全部为浮点场景单位，`x/y` 可取负值或超过画布尺寸，
- * 配合 rotation/skew 实现「突破像素限制」——数码管不被点阵网格量化。
+ * 配合 skew 实现「突破像素限制」——数码管不被点阵网格量化。
+ *
+ * 但它同时占据一整块矩形点阵空间：该矩形内的像素点被整块抠除
+ * （见 footprint.ts 的 computeReservedMask），而不是浮在像素点之上。
+ * 旋转已取消——矩形必须保持可量化的形状。
  */
 export interface DigitLayer extends LayerBase {
   type: 'digit'
@@ -70,8 +81,6 @@ export interface DigitLayer extends LayerBase {
   glow: number
   /** 发光颜色，默认取 color。 */
   glowColor: string
-  /** 旋转角度（度），绕字符块中心。 */
-  rotation: number
   /** X 方向斜切（度）。 */
   skewX: number
   /** Y 方向斜切（度）。 */
@@ -86,6 +95,8 @@ export interface DigitLayer extends LayerBase {
 /**
  * 信息流小组件层。由外部实时数据（如 SSE 桥接）驱动渲染。
  * `config` 承载各小组件专属配置，结构由 widgetKind 决定。
+ *
+ * 与数码管一致：占据 width × height 的矩形点阵空间，内部像素点被抠除。
  */
 export interface WidgetLayer extends LayerBase {
   type: 'widget'
@@ -95,10 +106,17 @@ export interface WidgetLayer extends LayerBase {
   y: number
   width: number
   height: number
-  rotation: number
   /** 小组件前景/强调色。 */
   color: string
   config: Record<string, unknown>
+}
+
+/** 一份已栅格化的像素画来源（空白填充或图片转换的结果）。 */
+export interface PixelArtSource {
+  /** 调色板（最多 255 色）。 */
+  palette: string[]
+  /** 像素值：0=灭，n=palette[n-1]；长度 = w*h。 */
+  pixels: Uint8Array
 }
 
 export type Layer = PixelLayer | DigitLayer | WidgetLayer
@@ -113,12 +131,22 @@ export interface Scene {
   /** 数据格式版本，用于 yml import 的向后兼容。 */
   version: number
   size: SceneSize
-  /** 画布底色，null 表示透明（png 导出保留透明通道）。 */
-  background: string | null
   layers: Layer[]
 }
 
 export const SCENE_VERSION = 1
+
+/** 点阵尺寸上限（宽/高各自）。超过即拒绝，避免无序扩张。 */
+export const MAX_SCENE_SIZE = 200
+
+/** 屏幕底色固定为黑色（物理面板的底色，不提供透明/换色选项）。 */
+export const SCREEN_BACKGROUND = '#000000'
+
+/** 灭点（未点亮像素）默认颜色：比板底略亮的暗灰，几乎融进黑底。 */
+export const DEFAULT_OFF_DOT_COLOR = '#17171d'
+
+/** 默认画笔颜色（调色板首色，樱粉）。 */
+export const DEFAULT_PIXEL_COLOR = '#ffaacc'
 
 /** 编辑器当前的绘制/交互工具。 */
 export type Tool =
