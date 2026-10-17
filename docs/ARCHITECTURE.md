@@ -106,7 +106,7 @@
 
 - `~/.claude/sessions/<pid>.json` — 会话实时状态（status: busy/idle/waiting + waitingFor）。bridge 只读，用 `process.kill(pid,0)` 判活跳过残留。
 - `~/.claude/projects/<escaped-cwd>/<sessionId>.jsonl` — 消息流。bridge 只读尾部 256KB 反向扫描（model/usage/last-prompt/tool_use），不全量解析。
-- GitHub Pages — 静态部署（CNAME `simu-digits.xrl.im`），CI 用 `voidzero-dev/setup-vp` + `vp install/check/test/build`。
+- GitHub Pages — 项目站点静态部署在 `https://wpy030414.github.io/digiboard/`（无 CNAME），CI 用 `voidzero-dev/setup-vp` + `vp install/check/test/build`；构建时 `base` 自动取 `/<repo>/`，`BrowserRouter` 的 basename 跟随 `import.meta.env.BASE_URL`，产物另附 `404.html` 与 `.nojekyll` 承担 SPA 回退。
 
 ## 重要技术边界
 

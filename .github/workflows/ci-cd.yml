@@ -32,6 +32,13 @@ jobs:
       - name: Build project
         run: vp build
 
+      # GitHub Pages 项目站点不带 SPA 回退：把 index.html 复制为 404.html，
+      # 直接访问/刷新 /digiboard/play 时仍能交给前端路由处理。
+      - name: Add SPA fallback and disable Jekyll
+        run: |
+          cp dist/index.html dist/404.html
+          touch dist/.nojekyll
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

@@ -251,3 +251,18 @@
   - 字号：色块内色号 `clamp(unit × 0.6, 5, 20)`；屏幕四周序号 `clamp(scale × 0.8, 9, 14)`；导出序号/图例/署名统一 `clamp(unit × 0.4, 12, 20)`，留白相应扩到 30–56px；屏幕图例正文由 `text-xs` 提到 `text-sm`。
 - 后果：拼豆导出文件明显变大，但属于一次性操作；离屏画布单边仍受 4096 约束。署名是成品图的一部分，`beadsAnnotations: false` 导出纯图案时不含署名。
 - 何时重新审视：若需要让用户自选导出倍率（1x/2x）或输出超过 4096 的印刷级图纸，应把密度做成 SaveDialog 选项并评估内存。
+
+## ADR-021：适配 GitHub Pages 项目站点子路径 `/digiboard/`
+
+- 日期：2026-10-18
+- 状态：已采纳
+- 背景：仓库部署到 GitHub Pages 项目站点，实际地址是 `https://wpy030414.github.io/digiboard/`，但构建产物引用 `/assets/*`、路由跑在站点根、`/play` 直达会 404——线上是白屏。
+- 决策：
+  - `vite.config.ts` 新增 `base`：CI（`GITHUB_ACTIONS=true`）下自动取 `/<GITHUB_REPOSITORY 的 repo>/`，本地 dev/preview/e2e 保持 `/`；`DIGIBOARD_BASE` 可显式覆盖，便于本地复现线上构建。
+  - `BrowserRouter` 的 `basename` 直接读 `import.meta.env.BASE_URL`（去掉尾斜杠），不维护第二份路径常量。
+  - workflow 在 `vp build` 后把 `dist/index.html` 复制为 `dist/404.html` 并 `touch dist/.nojekyll`：GitHub Pages 没有 SPA 回退，`/digiboard/play` 直达/刷新靠 404 页把控制权交回前端路由。
+  - `index.html` 的 `/favicon.ico` 由 Vite 按 base 自动重写，无需手改为相对路径。
+- 为什么选这个：base 从 CI 环境推断，改名/fork 无需改代码；basename 复用 `BASE_URL` 避免两份路径漂移；`404.html` 是 GitHub Pages 上唯一无需服务端配置的 SPA 回退手段。
+- 为什么不选其他：固定 `base: '/digiboard/'` 会让本地 dev 与 e2e 全部迁到子路径（e2e baseURL、dev 端口均需跟着改）；改用 HashRouter 会牺牲播放页的干净 URL。
+- 后果：线上地址与分享链接必须带 `/digiboard/` 前缀；`404.html` 回退会丢失真实的 404 状态码（纯前端应用的既有取舍）。本地验证命令为 `DIGIBOARD_BASE=/digiboard/ pnpm build && DIGIBOARD_BASE=/digiboard/ pnpm preview`。
+- 何时重新审视：若改用自定义域名（配置 `public/CNAME`）或迁移到用户站点根仓库，base 需要回到 `/`。
