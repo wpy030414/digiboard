@@ -33,7 +33,7 @@ export interface LayerBase {
  * 点亮的格按调色板上色，未点亮的格用 `offColor` 画暗点。
  *
  * `pixels` 为长度 `w*h` 的 Uint8Array，索引 `y*w+x`，值 0=灭，n(1..)=调色板
- * `palette[n-1]` —— 单层即可混搭多种颜色（最多 255 色）。
+ * `palette[n-1]` —— 单层即可混搭多种颜色（最多 221 色，对齐 MARD 拼豆色卡）。
  * store 保证不可变更新：任何写入前都会 clone，历史栈因此可安全共享引用。
  */
 export interface PixelLayer extends LayerBase {
@@ -113,7 +113,7 @@ export interface WidgetLayer extends LayerBase {
 
 /** 一份已栅格化的像素画来源（空白填充或图片转换的结果）。 */
 export interface PixelArtSource {
-  /** 调色板（最多 255 色）。 */
+  /** 调色板（最多 221 色，对齐 MARD 拼豆色卡）。 */
   palette: string[]
   /** 像素值：0=灭，n=palette[n-1]；长度 = w*h。 */
   pixels: Uint8Array

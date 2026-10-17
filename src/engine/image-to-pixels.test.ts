@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { coverCrop, quantizeImageData } from './image-to-pixels'
+import { DEFAULT_MAX_COLORS, coverCrop, quantizeImageData } from './image-to-pixels'
+import { MAX_BEAD_COLORS, beadColorForHex } from './beads-palette'
 
 /** 生成 RGBA 数据：每格 [r,g,b,a]。 */
 function rgba(cells: Array<[number, number, number, number]>): Uint8ClampedArray {
@@ -32,7 +33,7 @@ describe('coverCrop — cover 裁切', () => {
 })
 
 describe('quantizeImageData — 色彩降级', () => {
-  it('两种纯色映射为 2 色调色板与对应索引', () => {
+  it('两种纯色吸附为拼豆色卡中的 2 色并映射到对应索引', () => {
     const data = rgba([
       [255, 0, 0, 255],
       [255, 0, 0, 255],
@@ -40,7 +41,8 @@ describe('quantizeImageData — 色彩降级', () => {
       [0, 0, 255, 255],
     ])
     const { palette, pixels } = quantizeImageData(data, 2, 2)
-    expect(palette).toEqual(['#ff0000', '#0000ff'])
+    expect(palette).toEqual(['#e10328', '#0f52bd'])
+    expect(palette.map((hex) => beadColorForHex(hex)?.code)).toEqual(['F5', 'C8'])
     expect(Array.from(pixels)).toEqual([1, 1, 2, 2])
   })
 
@@ -50,8 +52,21 @@ describe('quantizeImageData — 色彩降级', () => {
       [0, 0, 0, 0],
     ])
     const { palette, pixels } = quantizeImageData(data, 2, 1)
-    expect(palette).toEqual(['#00ff00'])
+    expect(palette).toEqual(['#39e158'])
     expect(Array.from(pixels)).toEqual([1, 0])
+  })
+
+  it('调色板颜色全部来自拼豆色卡且不重复', () => {
+    const cells: Array<[number, number, number, number]> = []
+    for (let i = 0; i < 60; i++) cells.push([i * 4, (i * 7) % 256, (i * 11) % 256, 255])
+    const { palette } = quantizeImageData(rgba(cells), 60, 1)
+    expect(new Set(palette).size).toBe(palette.length)
+    for (const hex of palette) expect(beadColorForHex(hex)).toBeDefined()
+  })
+
+  it('默认上限与拼豆色卡一致（221 色）', () => {
+    expect(DEFAULT_MAX_COLORS).toBe(221)
+    expect(DEFAULT_MAX_COLORS).toBe(MAX_BEAD_COLORS)
   })
 
   it('颜色数受 maxColors 限制，相近色合并到同色', () => {

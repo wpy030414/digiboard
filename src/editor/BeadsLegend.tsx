@@ -3,10 +3,14 @@
  *
  * 计数来自像素基座当前内容（palette 索引即像素值-1）；点击已选中的色块再次
  * 点击即取消筛选。筛选只影响屏幕显示，不改变数据与导出。
+ *
+ * 图例显示拼豆色号（MARD 221 色）而不是 HEX：颜色恰好等于色卡时直接给出色号，
+ * 否则给出最接近的色号并加 `≈` 前缀——照着买豆子时不会误以为完全一致。
  */
 
 import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { beadColorForHex, compareBeadCode, nearestBeadColor } from '@/engine/beads-palette'
 import type { PixelLayer } from '@/engine/types'
 
 interface BeadsLegendProps {
@@ -25,8 +29,18 @@ export function BeadsLegend({ layer, selectedValue, onSelect, width }: BeadsLege
       if (v > 0 && v <= counts.length) counts[v - 1]! += 1
     }
     return layer.palette
-      .map((color, i) => ({ color, value: i + 1, count: counts[i]! }))
+      .map((color, i) => {
+        const exact = beadColorForHex(color)
+        return {
+          color,
+          value: i + 1,
+          count: counts[i]!,
+          bead: exact ?? nearestBeadColor(color),
+          exact: Boolean(exact),
+        }
+      })
       .filter((it) => it.count > 0)
+      .sort((a, b) => compareBeadCode(a.bead.code, b.bead.code))
   }, [layer])
 
   const total = items.reduce((n, it) => n + it.count, 0)
@@ -42,12 +56,17 @@ export function BeadsLegend({ layer, selectedValue, onSelect, width }: BeadsLege
       </span>
       {items.map((it) => {
         const selected = selectedValue === it.value
+        const code = it.exact ? it.bead.code : `≈${it.bead.code}`
+        const detail = it.exact
+          ? `拼豆色号 ${it.bead.code}（${it.bead.hex}）`
+          : `最接近的拼豆色号 ${it.bead.code}（${it.bead.hex}），当前颜色 ${it.color}`
         return (
           <button
             key={it.value}
             type="button"
             data-testid={`beads-legend-item-${it.value}`}
             data-selected={selected}
+            data-bead-code={it.bead.code}
             aria-pressed={selected}
             onClick={() => onSelect(selected ? null : it.value)}
             className={cn(
@@ -56,13 +75,13 @@ export function BeadsLegend({ layer, selectedValue, onSelect, width }: BeadsLege
                 ? 'border-primary bg-primary/15 text-primary'
                 : 'border-border hover:bg-accent',
             )}
-            title={selected ? '再次点击显示全部颜色' : `只显示 ${it.color}`}
+            title={selected ? '再次点击显示全部颜色' : `只显示 ${code} · ${detail}`}
           >
             <span
               className="size-3 rounded-[2px] border border-black/30"
               style={{ background: it.color }}
             />
-            <span className="font-mono">{it.color}</span>
+            <span className="font-mono">{code}</span>
             <span className="text-muted-foreground tabular-nums">×{it.count}</span>
           </button>
         )

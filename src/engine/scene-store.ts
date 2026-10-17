@@ -30,6 +30,7 @@ import {
 } from './factories'
 import { bresenhamLine, floodFill, setPixel } from './pixels'
 import { loadPersistedScene } from './persistence'
+import { MAX_BEAD_COLORS, nearestBeadColor } from './beads-palette'
 
 const MAX_HISTORY = 100
 
@@ -91,14 +92,14 @@ function withPixelLayer(layers: Layer[], id: string, mutate: (px: PixelLayer) =>
 
 /**
  * 把画笔颜色解析为像素值：0=灭，1..=调色板下标+1。
- * 新颜色自动登记进调色板（上限 255，超出时退回首色）。
+ * 新颜色自动登记进调色板（上限为拼豆色卡 221 色，超出时退回首色）。
  * 必须作用于「已 clone 的图层」，否则会破坏历史快照的不可变性。
  */
 function colorToValue(layer: PixelLayer, color: string | null): number {
   if (color === null) return 0
   const idx = layer.palette.indexOf(color)
   if (idx >= 0) return idx + 1
-  if (layer.palette.length >= 255) return 1
+  if (layer.palette.length >= MAX_BEAD_COLORS) return 1
   layer.palette.push(color)
   return layer.palette.length
 }
@@ -122,7 +123,8 @@ export const useSceneStore = create<SceneState>((set, get) => {
     scene: loadPersistedScene() ?? createDefaultScene(),
     selectedId: null,
     tool: 'pen',
-    brushColor: DEFAULT_PIXEL_COLOR,
+    // 画笔颜色统一落在拼豆色卡上（默认粉吸附到 E19）
+    brushColor: nearestBeadColor(DEFAULT_PIXEL_COLOR).hex,
     past: [],
     future: [],
 
@@ -248,7 +250,8 @@ export const useSceneStore = create<SceneState>((set, get) => {
 
     select: (id) => set({ selectedId: id }),
     setTool: (t) => set({ tool: t }),
-    setBrushColor: (color) => set({ brushColor: color }),
+    // 手选颜色也降级到最近的拼豆色号，避免画布出现买不到的豆色
+    setBrushColor: (color) => set({ brushColor: nearestBeadColor(color).hex }),
 
     // —— 像素绘制（作用于选中的像素层，或第一个像素层）——
     drawPixel: (x, y, color) => {

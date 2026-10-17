@@ -37,15 +37,15 @@
 | `digit`  | 浮点，可超出画布 | `<svg>` 铺满容器 + matrix transform + glow filter，占据矩形 | 序列化为 SVG 文档 → `Image` → drawImage   | **否（真突破）** |
 | `widget` | 浮点             | `<div>` container-query 单位，DOM 渲染，占据矩形            | `widgetLayerToSvg` 快照化为 SVG 文本卡    | 否               |
 
-**拼豆模式**（编辑器工具栏开关，偏好存 localStorage `digiboard.ui.beads.v1`）：
-像素改画直角整格、无留缝，叠加行列序号与红色标识线（5 格虚线 / 10 格实线），
-画布下方出现颜色图例（每种颜色的像素数），点击图例可只显示该颜色。
-开启时 PNG 导出同步变成直角方块并烧入红色参考线（不含序号）；关闭时导出仍是圆角点阵。
+**拼豆模式**（编辑器工具栏开关，偏好存 localStorage `digiboard.ui.beads.v1`；开关标签随状态显示「副屏」/「拼豆」）：
+像素改画直角整格、无留缝，叠加行列序号、每格半透灰色边界线与红色标识线（5 格虚线 / 10 格实线），
+画布下方出现颜色图例（每种颜色按 **MARD 221 色拼豆色号** 显示像素数，并按色号自然顺序 `A1 < A9 < A10 < B1` 排列），点击图例可高亮该颜色——其余颜色降为 30% 透明度而不是消失。格子 ≥8px 时，每个色块中央用取反色小字标注色号（亮底深字 / 暗底白字）。
+开启时 PNG 导出同步变成直角方块与全套参考线，并外扩留白绘制行列序号与图例（`export/beads-export.ts`）；关闭时导出仍是圆角点阵。
 
 **点阵尺寸上限 200×200**（`MAX_SCENE_SIZE`）：工具栏输入、新建对话框、resize 与 YAML 加载统一受此约束。
 
 **像素层是画布基座**：像素值语义为调色板索引（0=灭，n=`palette[n-1]`），
-因此单层即可混搭多色（上限 255 色）；画笔颜色在顶部工具栏，写入时自动登记新颜色。
+因此单层即可混搭多色（上限 221 色，与 MARD 拼豆色卡一致）；画笔颜色在顶部工具栏，选择时自动吸附到最近的拼豆色号（tooltip 显示色号），写入时自动登记新颜色。
 
 **像素层是画布基座**：场景恒有且仅有一个 `pixel` 层，固定位于 `layers[0]`
 （z 最底）。它不出现在图层面板、不可删除/复制，也不能通过「添加图层」新增；
@@ -59,29 +59,31 @@
 
 ## 核心模块
 
-| 模块                             | 职责                                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `engine/types.ts`                | 场景/图层数据模型唯一权威定义（Scene、PixelLayer、DigitLayer、WidgetLayer、Tool）                             |
-| `engine/scene-store.ts`          | zustand 单例：场景 CRUD、选中态、撤销/重做栈（上限 100）、像素写入的 clone-then-mutate                        |
-| `engine/digits.ts`               | 七段数码管：a-g 位掩码字符表、段位几何（sharp/rounded）、文本排布（含小数点）                                 |
-| `engine/transform.ts`            | 3×3 仿射矩阵：translate/rotate/skew/scale、layerToScene 及其逆、AABB 包围盒与命中测试                         |
-| `engine/pixels.ts`               | 像素原语：扫描线油漆桶、Bresenham 直线、RLE 编解码                                                            |
-| `engine/dots.ts`                 | 圆角点阵几何与绘制（灭点/按调色板分桶的亮点、留缝、圆角），屏幕与 PNG 导出共用                                |
-| `engine/footprint.ts`            | 矢量层矩形与占位掩码：`layerFootprint` / `pointInLayer` / `computeReservedMask`                               |
-| `engine/persistence.ts`          | 场景防抖持久化到 localStorage（YAML 序列化，损坏/不可用时静默降级）                                           |
-| `engine/image-to-pixels.ts`      | 图片 → 像素画：cover 裁切、4bit/通道分桶量化、最多 255 色调色板                                               |
-| `editor/NewSceneDialog.tsx`      | 新建画布对话框：指定尺寸（1–200）空白生成 / 图片生成                                                          |
-| `render/BeadsOverlay.tsx`        | 拼豆模式叠层：行列序号（≥16px/格时逐格，否则每 5 格）与 5/10 格红色标识线                                     |
-| `engine/factories.ts`            | 图层/场景工厂、resize 重采样（保留重叠区）、深拷贝（历史快照）                                                |
-| `engine/render/SceneCanvas.tsx`  | 合成容器（edit/play 共用）：图层叠放、指针交互（绘制/拖拽矢量层）                                             |
-| `engine/export/to-yaml.ts`       | 场景⇄YAML（像素 RLE），base64 变体供播放页 URL                                                                |
-| `engine/export/to-png.ts`        | 三层合成到离屏 canvas → Blob；矢量层逐层栅格化保 z-order                                                      |
-| `engine/export/vector-to-svg.ts` | 矢量层→SVG 字符串（复用 digits/transform 几何，所见即所得）                                                   |
-| `editor/*`                       | Toolbar（工具/尺寸/缩放/导出）、LayerPanel（图层树）、PropertyPanel（分类型属性表单）                         |
-| `pages/EditorPage.tsx`           | 四区布局、自适应缩放、键盘快捷键、导出/播放编排                                                               |
-| `pages/PlayerPage.tsx`           | 全屏只读：URL base64-yml / 拖入文件 / 内置演示场景，F 全屏 E 返回                                             |
-| `widgets/claude-status/*`        | 小组件注册（index.ts）、渲染器（container-query 自适应）、状态 store、SSE hook（3s 超时降级 mock）、mock 数据 |
-| `bridge/server.mjs`              | 本地 SSE sidecar：枚举判活会话、jsonl 尾部反向扫描、聚合推送；`/events`(SSE) `/status`(快照)                  |
+| 模块                             | 职责                                                                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `engine/types.ts`                | 场景/图层数据模型唯一权威定义（Scene、PixelLayer、DigitLayer、WidgetLayer、Tool）                                                                                              |
+| `engine/scene-store.ts`          | zustand 单例：场景 CRUD、选中态、撤销/重做栈（上限 100）、像素写入的 clone-then-mutate                                                                                         |
+| `engine/digits.ts`               | 七段数码管：a-g 位掩码字符表、段位几何（sharp/rounded）、文本排布（含小数点）                                                                                                  |
+| `engine/transform.ts`            | 3×3 仿射矩阵：translate/rotate/skew/scale、layerToScene 及其逆、AABB 包围盒与命中测试                                                                                          |
+| `engine/pixels.ts`               | 像素原语：扫描线油漆桶、Bresenham 直线、RLE 编解码                                                                                                                             |
+| `engine/dots.ts`                 | 圆角点阵几何与绘制（灭点/按调色板分桶的亮点、留缝、圆角），屏幕与 PNG 导出共用                                                                                                 |
+| `engine/footprint.ts`            | 矢量层矩形与占位掩码：`layerFootprint` / `pointInLayer` / `computeReservedMask`                                                                                                |
+| `engine/persistence.ts`          | 场景防抖持久化到 localStorage（YAML 序列化，损坏/不可用时静默降级）                                                                                                            |
+| `engine/beads-palette.ts`        | MARD 221 色色卡（色号/HEX/分组）、精确查询与最近色吸附；调色板上限的来源                                                                                                       |
+| `engine/image-to-pixels.ts`      | 图片 → 像素画：cover 裁切、4bit/通道分桶量化、吸附到 MARD 221 色色卡                                                                                                           |
+| `editor/NewSceneDialog.tsx`      | 新建画布对话框：指定尺寸（1–200）空白生成 / 图片生成                                                                                                                           |
+| `render/BeadsOverlay.tsx`        | 拼豆模式叠层：行列序号（≥16px/格时逐格，否则每 5 格）与 5/10 格红色标识线                                                                                                      |
+| `engine/factories.ts`            | 图层/场景工厂、resize 重采样（保留重叠区）、深拷贝（历史快照）                                                                                                                 |
+| `engine/render/SceneCanvas.tsx`  | 合成容器（edit/play 共用）：图层叠放、指针交互（绘制/拖拽矢量层）                                                                                                              |
+| `engine/export/to-yaml.ts`       | 场景⇄YAML（像素 RLE），base64 变体供播放页 URL                                                                                                                                 |
+| `engine/export/to-png.ts`        | 三层合成到离屏 canvas → Blob；矢量层逐层栅格化保 z-order；拼豆版扩边并附加序号/图例                                                                                            |
+| `engine/export/beads-export.ts`  | 拼豆导出版面：图例统计、序号与图例排版、画布尺寸计算                                                                                                                           |
+| `engine/export/vector-to-svg.ts` | 矢量层→SVG 字符串（复用 digits/transform 几何，所见即所得）                                                                                                                    |
+| `editor/*`                       | Toolbar（新建/保存/工具/尺寸/缩放/播放/侧栏）、NewSceneDialog（空白/从 YAML 载入/图片）、SaveDialog（YAML/PNG）、PropertyPanel（右上属性表单）、LayerPanel（右下「小组件」树） |
+| `pages/EditorPage.tsx`           | 画布 + 右侧共享栏（属性 60% / 小组件 40%）、自适应缩放、键盘快捷键、导出/播放编排                                                                                              |
+| `pages/PlayerPage.tsx`           | 全屏只读：URL base64-yml / 内置演示场景，F 全屏 E 返回（YAML 导入在「新建」）                                                                                                  |
+| `widgets/claude-status/*`        | 小组件注册（index.ts）、渲染器（container-query 自适应）、状态 store、SSE hook（3s 超时降级 mock）、mock 数据                                                                  |
+| `bridge/server.mjs`              | 本地 SSE sidecar：枚举判活会话、jsonl 尾部反向扫描、聚合推送；`/events`(SSE) `/status`(快照)                                                                                   |
 
 ## 模块关系
 

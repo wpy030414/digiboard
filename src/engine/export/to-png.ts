@@ -13,15 +13,21 @@
 
 import type { DigitLayer, Scene, WidgetLayer } from '../types'
 import { SCREEN_BACKGROUND } from '../types'
-import { drawBeadsGuides, drawPixelDots } from '../dots'
+import { BEAD_CODE_MIN_CELL, drawBeadsGuides, drawPixelDots } from '../dots'
 import { computeReservedMask } from '../footprint'
 import { vectorLayerToSvgDoc, type WidgetSnapshot } from './vector-to-svg'
+import { drawBeadsAnnotations, measureBeadsExport } from './beads-export'
 
 export interface ExportPngOptions {
   pixelSize?: number
   snapshots?: Map<string, WidgetSnapshot>
-  /** 拼豆模式：直角无缝隙像素 + 5/10 格红色参考线。 */
+  /** 拼豆模式：直角无缝隙像素 + 每格灰色参考线 + 5/10 格红色参考线。 */
   beads?: boolean
+  /**
+   * 拼豆模式下是否附带行列序号与图例（默认开启）。关闭时只导出画布本身，
+   * 供需要纯图案的场合使用。
+   */
+  beadsAnnotations?: boolean
 }
 
 /** SVG 字符串 → HTMLImageElement（异步，onload 完成）。 */
@@ -47,17 +53,21 @@ export async function renderSceneToCanvas(
 ): Promise<HTMLCanvasElement> {
   const pixelSize = opts.pixelSize ?? 8
   const beads = opts.beads ?? false
-  const w = scene.size.w * pixelSize
-  const h = scene.size.h * pixelSize
+  const boardW = scene.size.w * pixelSize
+  const boardH = scene.size.h * pixelSize
+  // 拼豆成品默认带行列序号与图例；其它模式保持整张画布即场景
+  const annotate = beads && (opts.beadsAnnotations ?? true)
+  const metrics = annotate ? measureBeadsExport(scene, pixelSize) : null
+  const offset = metrics?.pad ?? 0
 
   const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
+  canvas.width = metrics?.width ?? boardW
+  canvas.height = metrics?.height ?? boardH
   const ctx = canvas.getContext('2d')!
 
-  // 1. 固定黑色底
+  // 1. 固定黑色底（含序号/图例留白）
   ctx.fillStyle = SCREEN_BACKGROUND
-  ctx.fillRect(0, 0, w, h)
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   // 2. 被可见矢量层占据的格子：像素层在这些格子上整块留空
   const reservedMask = computeReservedMask(scene.layers, scene.size.w, scene.size.h)
@@ -74,24 +84,35 @@ export async function renderSceneToCanvas(
     }),
   )
 
-  // 4. 按 z 顺序逐层合成
+  // 4. 按 z 顺序逐层合成（拼豆版把画布区平移到留白内）
+  ctx.save()
+  ctx.translate(offset, offset)
   for (const layer of scene.layers) {
     if (!layer.visible) continue
     if (layer.type === 'pixel') {
       ctx.globalAlpha = layer.opacity
-      drawPixelDots(ctx, layer, { unit: pixelSize, mask: reservedMask, beads })
+      drawPixelDots(ctx, layer, {
+        unit: pixelSize,
+        mask: reservedMask,
+        beads,
+        labelCodes: annotate && pixelSize >= BEAD_CODE_MIN_CELL,
+      })
       ctx.globalAlpha = 1
     } else {
       const img = vectorImgs.get(layer.id)
       if (img) {
         ctx.globalAlpha = 1 // 矢量层 opacity 已烘进 SVG
-        ctx.drawImage(img, 0, 0, w, h)
+        ctx.drawImage(img, 0, 0, boardW, boardH)
       }
     }
   }
 
-  // 5. 拼豆参考线：只作为导出成品的辅助标识，叠在最上层
+  // 5. 拼豆参考线：每格灰色细线 + 每 5/10 格红色标识，叠在画布区最上层
   if (beads) drawBeadsGuides(ctx, scene.size.w, scene.size.h, pixelSize)
+  ctx.restore()
+
+  // 6. 行列序号与图例：画在留白区（不随画布平移）
+  if (metrics) drawBeadsAnnotations(ctx, metrics)
 
   return canvas
 }

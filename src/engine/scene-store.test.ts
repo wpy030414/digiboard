@@ -323,3 +323,14 @@ describe('scene-store — 历史容量', () => {
     expect(store().past.length).toBeLessThanOrEqual(100)
   })
 })
+
+describe('scene-store — 画笔颜色对齐拼豆色卡', () => {
+  beforeEach(() => reset())
+
+  it('手选颜色吸附到最近的拼豆色号', () => {
+    store().setBrushColor('#ff0000')
+    expect(store().brushColor).toBe('#e10328') // F5
+    store().setBrushColor('#39e158')
+    expect(store().brushColor).toBe('#39e158') // 本身就在色卡上，保持不变
+  })
+})

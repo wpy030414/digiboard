@@ -19,6 +19,9 @@ export const SCENE_STORAGE_KEY = 'digiboard.scene.v1'
 /** 拼豆模式开关的本地偏好键（UI 偏好，不属于场景数据）。 */
 export const BEADS_STORAGE_KEY = 'digiboard.ui.beads.v1'
 
+/** 右侧栏（属性 / 小组件）显隐的本地偏好键。 */
+export const SIDEBAR_STORAGE_KEY = 'digiboard.ui.sidebar.v1'
+
 /** 默认防抖时长（毫秒）：足够吞掉画笔拖拽的高频中间态。 */
 export const PERSIST_DEBOUNCE_MS = 400
 
@@ -67,6 +70,28 @@ export function loadBeadsMode(key = BEADS_STORAGE_KEY): boolean {
 
 /** 保存拼豆模式偏好。 */
 export function saveBeadsMode(on: boolean, key = BEADS_STORAGE_KEY): void {
+  const s = storage()
+  if (!s) return
+  try {
+    s.setItem(key, on ? '1' : '0')
+  } catch {
+    // 忽略配额/隐私模式错误
+  }
+}
+
+/** 读取右侧栏是否展开（默认展开）。 */
+export function loadSidebarVisible(key = SIDEBAR_STORAGE_KEY): boolean {
+  const s = storage()
+  if (!s) return true
+  try {
+    return s.getItem(key) !== '0'
+  } catch {
+    return true
+  }
+}
+
+/** 保存右侧栏显隐偏好。 */
+export function saveSidebarVisible(on: boolean, key = SIDEBAR_STORAGE_KEY): void {
   const s = storage()
   if (!s) return
   try {

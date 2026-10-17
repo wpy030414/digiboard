@@ -108,3 +108,25 @@ describe('拼豆模式偏好', () => {
     expect(loadBeadsMode()).toBe(false)
   })
 })
+
+describe('右侧栏显隐偏好', () => {
+  it('默认展开，保存后可读回', async () => {
+    const { loadSidebarVisible, saveSidebarVisible, SIDEBAR_STORAGE_KEY } =
+      await import('./persistence')
+    expect(loadSidebarVisible()).toBe(true)
+    saveSidebarVisible(false)
+    expect(loadSidebarVisible()).toBe(false)
+    expect(localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe('0')
+    saveSidebarVisible(true)
+    expect(loadSidebarVisible()).toBe(true)
+  })
+
+  it('存储不可用时不抛错且按默认展开处理', async () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    const { loadSidebarVisible } = await import('./persistence')
+    expect(loadSidebarVisible()).toBe(true)
+    spy.mockRestore()
+  })
+})

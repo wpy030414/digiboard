@@ -19,10 +19,11 @@ interface DotTrace {
 
 /** 记录 roundRect / rect 与 fill 的最小 canvas 2d 替身。 */
 function fakeCtx() {
-  const fills: { style: string; dots: DotTrace[] }[] = []
+  const fills: { style: string; dots: DotTrace[]; alpha: number }[] = []
   let path: DotTrace[] = []
   const ctx = {
     fillStyle: '',
+    globalAlpha: 1,
     beginPath: () => {
       path = []
     },
@@ -33,7 +34,7 @@ function fakeCtx() {
       path.push({ x, y, size: w, radius: 0 })
     },
     fill: () => {
-      fills.push({ style: ctx.fillStyle, dots: path.slice() })
+      fills.push({ style: ctx.fillStyle, dots: path.slice(), alpha: ctx.globalAlpha })
     },
   }
   return { ctx: ctx as unknown as CanvasRenderingContext2D, fills }
@@ -66,8 +67,8 @@ describe('beadsBoundaries / drawBeadsGuides — 参考线', () => {
     expect(beadsBoundaries(4)).toEqual([])
   })
 
-  it('10 的倍数画实线，其余虚线', () => {
-    const lines: Array<{ dash: number[]; alpha: number }> = []
+  it('先画每格灰线，再以 10 的倍数画实线、其余虚线', () => {
+    const lines: Array<{ dash: number[]; alpha: number; style: string }> = []
     const ctx = {
       save: () => {},
       restore: () => {},
@@ -75,9 +76,11 @@ describe('beadsBoundaries / drawBeadsGuides — 参考线', () => {
       moveTo: () => {},
       lineTo: () => {},
       stroke: () => {
-        lines.push({ dash: [...dash], alpha })
+        lines.push({ dash: [...dash], alpha, style })
       },
-      set strokeStyle(_v: string) {},
+      set strokeStyle(v: string) {
+        style = v
+      },
       set globalAlpha(v: number) {
         alpha = v
       },
@@ -88,13 +91,66 @@ describe('beadsBoundaries / drawBeadsGuides — 参考线', () => {
     }
     let alpha = 1
     let dash: number[] = []
+    let style = ''
     drawBeadsGuides(ctx as unknown as CanvasRenderingContext2D, 20, 20, 8)
+
+    // 第一条描边是整片格边界灰线
+    expect(lines[0]?.style).toBe('rgba(255, 255, 255, 0.16)')
+
+    const red = lines.filter((l) => l.style === '#ff3b3b')
     // 20 格 => 3 条竖线(5,10,15) + 3 条横线
-    expect(lines).toHaveLength(6)
-    const solid = lines.filter((l) => l.dash.length === 0)
-    const dashed = lines.filter((l) => l.dash.length > 0)
-    expect(solid).toHaveLength(2) // 10/20 坐标... 5,10,15 中只有 10 是实线，横竖各一
+    expect(red).toHaveLength(6)
+    const solid = red.filter((l) => l.dash.length === 0)
+    const dashed = red.filter((l) => l.dash.length > 0)
+    expect(solid).toHaveLength(2) // 5,10,15 中只有 10 是实线，横竖各一
     expect(dashed).toHaveLength(4)
+  })
+})
+
+describe('drawPixelDots — 拼豆色号标注', () => {
+  function textCtx() {
+    const texts: Array<{ text: string; fill: string; x: number; y: number }> = []
+    const ctx = {
+      fillStyle: '',
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      beginPath: () => {},
+      rect: () => {},
+      fill: () => {},
+      measureText: (t: string) => ({ width: t.length * 4 }),
+      fillText: (text: string, x: number, y: number) => {
+        texts.push({ text, fill: ctx.fillStyle, x, y })
+      },
+    }
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, texts }
+  }
+
+  it('格子足够大时在每个色块中央写取反色色号', () => {
+    const layer: PixelLayer = createPixelLayer({ w: 2, h: 1 })
+    layer.palette = ['#e10328', '#ffffff']
+    layer.pixels[0] = 1
+    layer.pixels[1] = 2
+    const { ctx, texts } = textCtx()
+    drawPixelDots(ctx, layer, { unit: 16, beads: true, labelCodes: true })
+    expect(texts.map((t) => t.text)).toEqual(['F5', 'H1'])
+    // 暗红底白字、白底近黑字
+    expect(texts[0]!.fill).toBe('#ffffff')
+    expect(texts[1]!.fill).toBe('#101014')
+    expect(texts[0]!.x).toBe(8)
+    expect(texts[0]!.y).toBe(8)
+  })
+
+  it('格子过小或未开启时不标注', () => {
+    const layer: PixelLayer = createPixelLayer({ w: 1, h: 1 })
+    layer.palette = ['#e10328']
+    layer.pixels[0] = 1
+    const small = textCtx()
+    drawPixelDots(small.ctx, layer, { unit: 6, beads: true, labelCodes: true })
+    expect(small.texts).toHaveLength(0)
+    const off = textCtx()
+    drawPixelDots(off.ctx, layer, { unit: 16, beads: true })
+    expect(off.texts).toHaveLength(0)
   })
 })
 
@@ -134,7 +190,7 @@ describe('drawPixelDots — 灭点与亮点', () => {
     expect(fills).toHaveLength(1)
   })
 
-  it('onlyValue 只保留指定颜色的亮点', () => {
+  it('onlyValue 让其他颜色降为 30% 透明度而不是消失', () => {
     const layer = createPixelLayer({ w: 3, h: 1 })
     layer.palette = ['#ff0000', '#00ff00']
     layer.pixels[0] = 1
@@ -142,10 +198,14 @@ describe('drawPixelDots — 灭点与亮点', () => {
     layer.pixels[2] = 1
     const { ctx, fills } = fakeCtx()
     drawPixelDots(ctx, layer, { unit: 8, onlyValue: 1 })
-    // 只有红色桶被绘制：1 颗
-    const litFills = fills.filter((f) => f.style === '#ff0000')
-    expect(litFills).toHaveLength(1)
-    expect(litFills[0]!.dots).toHaveLength(2)
+    const red = fills.filter((f) => f.style === '#ff0000')
+    const green = fills.filter((f) => f.style === '#00ff00')
+    expect(red).toHaveLength(1)
+    expect(red[0]!.dots).toHaveLength(2)
+    expect(red[0]!.alpha).toBe(1)
+    expect(green).toHaveLength(1)
+    expect(green[0]!.dots).toHaveLength(1)
+    expect(green[0]!.alpha).toBeCloseTo(0.3)
   })
 
   it('offColor 为空时跳过灭点', () => {

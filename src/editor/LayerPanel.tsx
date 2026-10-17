@@ -1,6 +1,7 @@
 /**
- * 左侧图层面板：图层树（自顶向下 = z 从高到低）、增删、显隐、锁定、排序、选中。
+ * 右下方「小组件」面板：内容层树（自顶向下 = z 从高到低）、增删、显隐、锁定、排序、选中。
  *
+ * 与属性面板共享右侧栏（属性 60% 在上、小组件 40% 在下）。
  * 像素层是画布基座，不是可编辑的内容图层：它不出现在列表里、不可增删，
  * 并永远位于图层栈最底部（见 `normalizeScene` 与 store 守卫）。
  */
@@ -56,9 +57,9 @@ export function LayerPanel() {
   const displayLayers = scene.layers.filter((l) => l.type !== 'pixel').reverse()
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r bg-card">
-      <div className="flex items-center justify-between px-3 py-2">
-        <h2 className="text-sm font-medium">图层</h2>
+    <div className="flex h-full w-full flex-col bg-card">
+      <div className="flex h-9 items-center justify-between px-3" data-testid="layer-header">
+        <h2 className="text-sm font-medium">小组件</h2>
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -67,13 +68,13 @@ export function LayerPanel() {
                   variant="ghost"
                   size="icon-sm"
                   data-testid="add-layer"
-                  aria-label="添加图层"
+                  aria-label="添加小组件"
                 >
                   <Plus />
                 </Button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
-            <TooltipContent>添加图层</TooltipContent>
+            <TooltipContent>添加小组件</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
             <DropdownMenuItem data-testid="add-digit" onClick={() => addLayer('digit')}>
@@ -89,7 +90,7 @@ export function LayerPanel() {
         </DropdownMenu>
       </div>
       <Separator />
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1" data-testid="layer-scroll">
         <ul className="flex flex-col gap-0.5 p-1.5" data-testid="layer-list">
           {displayLayers.map((layer, di) => {
             const idx = scene.layers.length - 1 - di // 实际数组下标（像素基座固定在最前）
@@ -111,12 +112,12 @@ export function LayerPanel() {
           })}
           {displayLayers.length === 0 && (
             <li className="px-2 py-6 text-center text-xs text-muted-foreground">
-              暂无图层，点右上角 + 添加
+              暂无小组件，点右上角 + 添加
             </li>
           )}
         </ul>
       </ScrollArea>
-    </aside>
+    </div>
   )
 }
 

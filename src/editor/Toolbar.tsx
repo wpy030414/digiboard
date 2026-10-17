@@ -1,5 +1,5 @@
 /**
- * 顶部工具栏：新建、工具切换、画笔颜色、撤销/重做、点阵尺寸、视图缩放、导出、播放。
+ * 顶部工具栏：新建、保存、工具切换、画笔颜色、撤销/重做、点阵尺寸、视图缩放、播放。
  */
 
 import { useEffect, useState } from 'react'
@@ -12,11 +12,12 @@ import {
   Undo2,
   Redo2,
   Play,
-  FileCode2,
-  Image as ImageIcon,
+  PanelRightClose,
+  PanelRightOpen,
   ZoomIn,
   ZoomOut,
   SquareDashed,
+  Save,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,8 +26,10 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Switch } from '@/components/ui/switch'
 import { useSceneStore } from '@/engine/scene-store'
+import { beadColorForHex, nearestBeadColor } from '@/engine/beads-palette'
 import { MAX_SCENE_SIZE, type Tool } from '@/engine/types'
 import { NewSceneDialog } from './NewSceneDialog'
+import { SaveDialog } from './SaveDialog'
 
 const TOOLS: Array<{ id: Tool; icon: typeof Pen; label: string; key: string }> = [
   { id: 'select', icon: MousePointer2, label: '选择 / 移动矢量层', key: 'V' },
@@ -41,9 +44,15 @@ interface ToolbarProps {
   setScale: (fn: (s: number) => number) => void
   beads: boolean
   setBeads: (v: boolean) => void
+  saveOpen: boolean
+  setSaveOpen: (v: boolean) => void
+  newOpen: boolean
+  setNewOpen: (v: boolean) => void
   onExportPng: () => void
   onExportYaml: () => void
   onPlay: () => void
+  sidebarOpen: boolean
+  onToggleSidebar: () => void
 }
 
 export function Toolbar({
@@ -51,9 +60,15 @@ export function Toolbar({
   setScale,
   beads,
   setBeads,
+  saveOpen,
+  setSaveOpen,
+  newOpen,
+  setNewOpen,
   onExportPng,
   onExportYaml,
   onPlay,
+  sidebarOpen,
+  onToggleSidebar,
 }: ToolbarProps) {
   const scene = useSceneStore((s) => s.scene)
   const tool = useSceneStore((s) => s.tool)
@@ -65,8 +80,8 @@ export function Toolbar({
   const redo = useSceneStore((s) => s.redo)
   const canUndo = useSceneStore((s) => s.past.length > 0)
   const canRedo = useSceneStore((s) => s.future.length > 0)
-
-  const [newOpen, setNewOpen] = useState(false)
+  const brushBead = beadColorForHex(brushColor)
+  const brushCode = brushBead ? brushBead.code : `≈${nearestBeadColor(brushColor).code}`
 
   // 尺寸输入：本地草稿，Enter/blur 时提交（避免每敲一位就 resize）
   const [wDraft, setWDraft] = useState(String(scene.size.w))
@@ -98,7 +113,27 @@ export function Toolbar({
             <SquareDashed />
           </Button>
         </TooltipTrigger>
-        <TooltipContent>新建画布</TooltipContent>
+        <TooltipContent>
+          新建 <kbd className="ml-1 opacity-60">⌘N</kbd>
+        </TooltipContent>
+      </Tooltip>
+
+      {/* 保存：YAML / PNG 二选一 */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-testid="save-scene"
+            aria-label="保存"
+            onClick={() => setSaveOpen(true)}
+          >
+            <Save />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          保存 <kbd className="ml-1 opacity-60">⌘S</kbd>
+        </TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="mx-0.5 h-6" />
@@ -132,25 +167,33 @@ export function Toolbar({
 
       <Separator orientation="vertical" className="mx-0.5 h-6" />
 
-      {/* 画笔颜色：单层多色混搭，用哪色点哪色 */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <label
-            className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md border border-input bg-background"
-            data-testid="brush-color"
-            aria-label="画笔颜色"
-          >
-            <span className="size-4 rounded-sm" style={{ background: brushColor }} />
-            <input
-              type="color"
-              value={brushColor}
-              onChange={(e) => setBrushColor(e.target.value)}
-              className="absolute inset-0 size-full cursor-pointer opacity-0"
-            />
-          </label>
-        </TooltipTrigger>
-        <TooltipContent>画笔颜色 {brushColor}</TooltipContent>
-      </Tooltip>
+      {/* 画笔颜色：单层多色混搭，用哪色点哪色；色号常驻显示在色块右侧 */}
+      <div className="flex items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <label
+              className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md border border-input bg-background"
+              data-testid="brush-color"
+              aria-label="画笔颜色"
+            >
+              <span className="size-4 rounded-sm" style={{ background: brushColor }} />
+              <input
+                type="color"
+                value={brushColor}
+                onChange={(e) => setBrushColor(e.target.value)}
+                className="absolute inset-0 size-full cursor-pointer opacity-0"
+              />
+            </label>
+          </TooltipTrigger>
+          <TooltipContent>画笔颜色 {brushCode}</TooltipContent>
+        </Tooltip>
+        <span
+          className="min-w-9 text-xs tabular-nums text-muted-foreground"
+          data-testid="brush-color-code"
+        >
+          {brushCode}
+        </span>
+      </div>
 
       <Separator orientation="vertical" className="mx-0.5 h-6" />
 
@@ -248,7 +291,7 @@ export function Toolbar({
 
       {/* 拼豆模式：直角无缝隙像素 + 行列序号 + 红色标识线 */}
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">拼豆模式</span>
+        <span className="text-xs text-muted-foreground">{beads ? '拼豆' : '副屏'}</span>
         <Switch
           checked={beads}
           onCheckedChange={setBeads}
@@ -259,21 +302,41 @@ export function Toolbar({
 
       <div className="flex-1" />
 
-      {/* 导出 */}
-      <Button variant="outline" size="sm" data-testid="export-yaml" onClick={onExportYaml}>
-        <FileCode2 className="size-4" />
-        导出 YAML
-      </Button>
-      <Button variant="outline" size="sm" data-testid="export-png" onClick={onExportPng}>
-        <ImageIcon className="size-4" />
-        导出 PNG
-      </Button>
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
-      <Button size="sm" data-testid="play" onClick={onPlay}>
-        <Play className="size-4" />
-        播放
-      </Button>
+      {/* 播放：图标按钮（跳转播放页） */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button size="icon-sm" data-testid="play" aria-label="播放" onClick={onPlay}>
+            <Play className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>播放</TooltipContent>
+      </Tooltip>
 
+      {/* 右侧栏（属性 / 小组件）显隐 */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-testid="toggle-sidebar"
+            aria-label={sidebarOpen ? '隐藏侧栏' : '显示侧栏'}
+            aria-pressed={sidebarOpen}
+            onClick={onToggleSidebar}
+          >
+            {sidebarOpen ? <PanelRightClose /> : <PanelRightOpen />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {sidebarOpen ? '隐藏属性与小组件侧栏' : '显示属性与小组件侧栏'}
+        </TooltipContent>
+      </Tooltip>
+
+      <SaveDialog
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+        onSaveYaml={onExportYaml}
+        onSavePng={onExportPng}
+      />
       <NewSceneDialog open={newOpen} onOpenChange={setNewOpen} />
     </header>
   )

@@ -11,6 +11,7 @@
  */
 
 import type { PixelLayer } from './types'
+import { beadColorForHex, invertedTextColor, nearestBeadColor } from './beads-palette'
 
 /** 每格四周留出的空隙占格边长的比例（单边）。 */
 export const DOT_GAP_RATIO = 0.16
@@ -45,9 +46,17 @@ export interface DrawPixelDotsOptions {
   mask?: Uint8Array | null
   /** 拼豆模式：格子画成直角矩形、无留缝（对齐物理拼豆板）。 */
   beads?: boolean
-  /** 只绘制该像素值（1..）的亮点，其余颜色隐藏（图例筛选）。 */
+  /** 图例筛选：该像素值（1..）保持原样，其余亮点降为 30% 透明度。 */
   onlyValue?: number | null
+  /** 拼豆色号标注：格子足够大时在每个色块中央写小号色号（取反色）。 */
+  labelCodes?: boolean
 }
+
+/** 色号标注的最小格子尺寸（输出像素）；太小则文字无法辨认，直接省略。 */
+export const BEAD_CODE_MIN_CELL = 8
+
+/** 图例筛选时非选中颜色的透明度（保留轮廓，避免画面突然消失）。 */
+export const FILTERED_DOT_ALPHA = 0.3
 
 /**
  * 把一个像素层画成点阵玩具板。调用方负责设置 canvas 尺寸与 globalAlpha。
@@ -61,7 +70,7 @@ export function drawPixelDots(
   opts: DrawPixelDotsOptions,
 ): void {
   const { w, h, pixels, palette, offColor } = layer
-  const { unit, mask, beads = false, onlyValue = null } = opts
+  const { unit, mask, beads = false, onlyValue = null, labelCodes = false } = opts
 
   if (offColor) {
     ctx.beginPath()
@@ -82,21 +91,46 @@ export function drawPixelDots(
       const i = y * w + x
       const v = pixels[i] ?? 0
       if (!v || mask?.[i]) continue
-      if (onlyValue !== null && v !== onlyValue) continue
       const bucket = buckets.get(v)
       if (bucket) bucket.push(i)
       else buckets.set(v, [i])
     }
   }
 
+  const baseAlpha = ctx.globalAlpha
+  const showLabels = labelCodes && unit >= BEAD_CODE_MIN_CELL
+  if (showLabels) {
+    const font = Math.min(10, Math.max(4, unit * 0.5))
+    ctx.font = `${font}px ui-monospace, SFMono-Regular, Menlo, monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+  }
+
   for (const [value, cells] of buckets) {
+    // 图例筛选：非选中的颜色保留但降为 30% 透明度
+    const dimmed = onlyValue !== null && value !== onlyValue
+    ctx.globalAlpha = dimmed ? baseAlpha * FILTERED_DOT_ALPHA : baseAlpha
+
     ctx.beginPath()
     for (const i of cells) {
       traceCell(ctx, i % w, Math.floor(i / w), unit, beads)
     }
-    ctx.fillStyle = palette[value - 1] ?? palette[0] ?? 'transparent'
+    const hex = palette[value - 1] ?? palette[0] ?? 'transparent'
+    ctx.fillStyle = hex
     ctx.fill()
+
+    // 拼豆色号：每个色块中央写小字，颜色取反以保证对比度（跟随该色透明度）
+    if (showLabels) {
+      const bead = beadColorForHex(hex) ?? nearestBeadColor(hex)
+      if (ctx.measureText(bead.code).width <= unit * 0.92) {
+        ctx.fillStyle = invertedTextColor(hex)
+        for (const i of cells) {
+          ctx.fillText(bead.code, (i % w) * unit + unit / 2, Math.floor(i / w) * unit + unit / 2)
+        }
+      }
+    }
   }
+  ctx.globalAlpha = baseAlpha
 }
 
 /** 拼豆参考线所在的格子边界（每 5 格，不含左/上边缘）。 */
@@ -106,7 +140,11 @@ export function beadsBoundaries(count: number): number[] {
   return out
 }
 
-/** 把拼豆参考线画进 canvas（PNG 导出用；屏幕用 SVG 叠层）。 */
+/**
+ * 把拼豆参考线画进 canvas（PNG 导出用；屏幕用 SVG 叠层）。
+ *
+ * 先画每格一条半透灰线（定位单颗豆的边界），再叠 5/10 格红色标识线。
+ */
 export function drawBeadsGuides(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -114,6 +152,25 @@ export function drawBeadsGuides(
   unit: number,
 ): void {
   ctx.save()
+
+  // 每格边界：半透灰细线
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)'
+  ctx.lineWidth = 1
+  ctx.setLineDash([])
+  ctx.beginPath()
+  for (let i = 1; i < w; i++) {
+    const x = i * unit + 0.5
+    ctx.moveTo(x, 0)
+    ctx.lineTo(x, h * unit)
+  }
+  for (let j = 1; j < h; j++) {
+    const y = j * unit + 0.5
+    ctx.moveTo(0, y)
+    ctx.lineTo(w * unit, y)
+  }
+  ctx.stroke()
+
+  // 5/10 格红色标识线
   ctx.strokeStyle = '#ff3b3b'
   const strokeBand = (index: number) => {
     const solid = index % 10 === 0

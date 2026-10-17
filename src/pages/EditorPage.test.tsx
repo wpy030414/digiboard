@@ -57,8 +57,7 @@ describe('EditorPage — 结构渲染', () => {
     expect(screen.getByTestId('scene-canvas')).toBeTruthy()
     expect(screen.getByTestId('layer-list')).toBeTruthy()
     expect(screen.getByTestId('tool-pen')).toBeTruthy()
-    expect(screen.getByTestId('export-png')).toBeTruthy()
-    expect(screen.getByTestId('export-yaml')).toBeTruthy()
+    expect(screen.getByTestId('save-scene')).toBeTruthy()
     expect(screen.getByTestId('play')).toBeTruthy()
   })
 
@@ -181,7 +180,8 @@ describe('EditorPage — 导出', () => {
     ) as unknown as typeof URL.createObjectURL
     globalThis.URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL
 
-    fireEvent.click(screen.getByTestId('export-yaml'))
+    fireEvent.click(screen.getByTestId('save-scene'))
+    fireEvent.click(screen.getByTestId('save-yaml'))
     expect(clickSpy).toHaveBeenCalled()
 
     globalThis.URL.createObjectURL = origUrl

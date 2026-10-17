@@ -1,8 +1,8 @@
 /**
- * 拼豆模式叠层：行列序号 + 5/10 格红色标识线。
+ * 拼豆模式叠层：行列序号 + 每格灰色边界线 + 5/10 格红色标识线。
  *
- * 纯视图辅助（不进入 PNG 导出）：
- *  - 每 5 格一条红色虚线，每 10 格一条红色实线（格子边界对齐）；
+ * 纯视图辅助：
+ *  - 每格一条半透灰线（定位单颗豆），其上是每 5 格红色虚线、每 10 格红色实线；
  *  - 四周序号：缩放足够大（每格 ≥16px）时逐格编号，否则每 5 格编号，
  *    避免数字挤成一团。
  */
@@ -30,6 +30,10 @@ export function BeadsOverlay({ w, h, scale }: BeadsOverlayProps) {
 
   const boundariesX = beadsBoundaries(w)
   const boundariesY = beadsBoundaries(h)
+  const cellX: number[] = []
+  for (let i = 1; i < w; i++) cellX.push(i)
+  const cellY: number[] = []
+  for (let j = 1; j < h; j++) cellY.push(j)
 
   const columns: number[] = []
   for (let i = step; i <= w; i += step) columns.push(i)
@@ -51,6 +55,32 @@ export function BeadsOverlay({ w, h, scale }: BeadsOverlayProps) {
           pointerEvents: 'none',
         }}
       >
+        {cellX.map((i) => (
+          <line
+            key={`gx-${i}`}
+            data-testid="beads-cell-guide"
+            x1={i * scale}
+            y1={0}
+            x2={i * scale}
+            y2={height}
+            stroke="#ffffff"
+            strokeOpacity={0.16}
+            strokeWidth={1}
+          />
+        ))}
+        {cellY.map((j) => (
+          <line
+            key={`gy-${j}`}
+            data-testid="beads-cell-guide"
+            x1={0}
+            y1={j * scale}
+            x2={width}
+            y2={j * scale}
+            stroke="#ffffff"
+            strokeOpacity={0.16}
+            strokeWidth={1}
+          />
+        ))}
         {boundariesX.map((i) => {
           const solid = i % 10 === 0
           return (

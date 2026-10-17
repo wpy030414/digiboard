@@ -11,7 +11,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { PixelLayer } from '../types'
-import { drawPixelDots } from '../dots'
+import { BEAD_CODE_MIN_CELL, drawPixelDots } from '../dots'
 
 /** 画布单边最大输出像素，避免大点阵 × 高缩放撑爆 canvas 内存。 */
 const MAX_CANVAS_SIDE = 4096
@@ -68,7 +68,13 @@ export function PixelCanvas({
     canvas.width = layer.w * unit
     canvas.height = layer.h * unit
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    drawPixelDots(ctx, layer, { unit, mask, beads, onlyValue })
+    drawPixelDots(ctx, layer, {
+      unit,
+      mask,
+      beads,
+      onlyValue,
+      labelCodes: beads && scale >= BEAD_CODE_MIN_CELL,
+    })
   }, [layer, scale, mask, beads, onlyValue])
 
   return (

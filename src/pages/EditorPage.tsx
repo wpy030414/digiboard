@@ -1,5 +1,5 @@
 /**
- * 编辑器页面：工具栏 + 图层面板 + 合成画布 + 属性面板 的四区布局。
+ * 编辑器页面：工具栏 + 合成画布 + 右侧共享栏（属性 60% / 小组件 40%）。
  * 负责：视图缩放/网格状态、导出 png/yml、跳转播放页、键盘快捷键。
  */
 
@@ -16,7 +16,12 @@ import { downloadScenePng, downloadText } from '@/engine/export/to-png'
 import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
 import { usePersistScene } from '@/editor/use-persist-scene'
 import { BeadsLegend } from '@/editor/BeadsLegend'
-import { loadBeadsMode, saveBeadsMode } from '@/engine/persistence'
+import {
+  loadBeadsMode,
+  loadSidebarVisible,
+  saveBeadsMode,
+  saveSidebarVisible,
+} from '@/engine/persistence'
 import type { PixelLayer } from '@/engine/types'
 
 /** 让画布按容器宽度自适应缩放（fit），并可手动覆盖。 */
@@ -40,6 +45,11 @@ export function EditorPage() {
   const [scale, setScaleState] = useState(6)
   const [autoFit, setAutoFit] = useState(true)
   const [beads, setBeadsState] = useState(() => loadBeadsMode())
+  // 新建 / 保存对话框（⌘N / ⌘S 与工具栏按钮共用）
+  const [newOpen, setNewOpen] = useState(false)
+  const [saveOpen, setSaveOpen] = useState(false)
+  // 右侧栏（属性 / 小组件）显隐，偏好持久化到 localStorage
+  const [sidebarOpen, setSidebarOpen] = useState(() => loadSidebarVisible())
   // 图例筛选：只显示某个颜色（像素值 1..），null = 全部
   const [beadsFilter, setBeadsFilter] = useState<number | null>(null)
 
@@ -47,6 +57,13 @@ export function EditorPage() {
     setBeadsState(on)
     saveBeadsMode(on)
     if (!on) setBeadsFilter(null)
+  }, [])
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => {
+      saveSidebarVisible(!prev)
+      return !prev
+    })
   }, [])
 
   const pixelLayer = scene.layers.find((l): l is PixelLayer => l.type === 'pixel')
@@ -94,7 +111,12 @@ export function EditorPage() {
       }
       if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault()
-        handleExportYaml()
+        setSaveOpen(true)
+        return
+      }
+      if (mod && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        setNewOpen(true)
         return
       }
       if (mod) return
@@ -144,12 +166,17 @@ export function EditorPage() {
         setScale={setScale}
         beads={beads}
         setBeads={setBeads}
+        saveOpen={saveOpen}
+        setSaveOpen={setSaveOpen}
+        newOpen={newOpen}
+        setNewOpen={setNewOpen}
         onExportPng={handleExportPng}
         onExportYaml={handleExportYaml}
         onPlay={handlePlay}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={toggleSidebar}
       />
       <div className="flex min-h-0 flex-1">
-        <LayerPanel />
         <main
           ref={viewportRef}
           className="relative flex min-w-0 flex-1 items-center justify-center overflow-auto bg-muted/40 p-3"
@@ -178,11 +205,21 @@ export function EditorPage() {
               />
             )}
           </div>
-          <div className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">
-            {scene.size.w}×{scene.size.h} · {effectiveScale}x{autoFit && ' · 自适应'}
-          </div>
         </main>
-        <PropertyPanel />
+        {/* 右侧共享栏：属性在上（60%），小组件在下（40%）；可整体收起 */}
+        {sidebarOpen && (
+          <aside
+            className="flex h-full w-72 shrink-0 flex-col border-l bg-card"
+            data-testid="sidebar"
+          >
+            <div className="flex min-h-0 flex-[3] flex-col">
+              <PropertyPanel />
+            </div>
+            <div className="flex min-h-0 flex-[2] flex-col border-t">
+              <LayerPanel />
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   )

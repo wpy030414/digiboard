@@ -11,8 +11,9 @@ test.describe('导出 — YAML', () => {
     await drawPixelViaStore(page, 4, 4)
     await setDigitTextViaStore(page, '1234')
 
+    await page.getByTestId('save-scene').click()
     const downloadPromise = page.waitForEvent('download')
-    await page.getByTestId('export-yaml').click()
+    await page.getByTestId('save-yaml').click()
     const download = await downloadPromise
 
     const tmp = path.join(os.tmpdir(), `digiboard-${Date.now()}.yml`)
@@ -58,8 +59,9 @@ test.describe('导出 — PNG（真实 canvas 栅格化）', () => {
     await drawPixelViaStore(page, 10, 10)
     await setDigitTextViaStore(page, '2077')
 
+    await page.getByTestId('save-scene').click()
     const downloadPromise = page.waitForEvent('download')
-    await page.getByTestId('export-png').click()
+    await page.getByTestId('save-png').click()
     const download = await downloadPromise
 
     const tmp = path.join(os.tmpdir(), `digiboard-${Date.now()}.png`)
@@ -165,11 +167,37 @@ test.describe('播放页 — 场景还原', () => {
     expect(hasDigit).toBe(true)
   })
 
-  test('播放页「编辑器」按钮返回 /', async ({ page }) => {
+  test('播放页「回到编辑器」按钮返回 /', async ({ page }) => {
     await gotoPlayer(page)
-    await page.getByTestId('player-edit').click()
+    const edit = page.getByTestId('player-edit')
+    await expect(edit).toHaveText('回到编辑器')
+    await edit.click()
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByTestId('scene-canvas')).toBeVisible()
+  })
+
+  test('全屏按钮可进入并退出全屏', async ({ page }) => {
+    await gotoPlayer(page)
+    const btn = page.getByTestId('player-fullscreen')
+    await btn.click()
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true)
+    await expect(btn).toHaveAttribute('aria-label', '退出全屏')
+
+    await btn.click()
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true)
+    await expect(btn).toHaveAttribute('aria-label', '全屏')
+  })
+
+  test('播放页全屏按钮位于左上角，且不再有 YAML 导入入口', async ({ page }) => {
+    await gotoPlayer(page)
+    await expect(page.getByTestId('player-upload')).toHaveCount(0)
+    const fullscreen = page.getByTestId('player-fullscreen')
+    await expect(fullscreen).toBeVisible()
+    const box = await fullscreen.boundingBox()
+    const viewport = page.viewportSize()!
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeLessThan(viewport.width / 2)
+    expect(box!.y).toBeLessThan(viewport.height / 2)
   })
 })
 

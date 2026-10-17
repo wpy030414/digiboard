@@ -1,5 +1,5 @@
 /**
- * 右侧属性面板：按选中图层类型分发编辑控件。
+ * 右侧属性面板（共享右栏的上 60%）：按选中图层类型分发编辑控件。
  *  - 无选中（或像素基座）：仅提示选中图层
  *  - digit：文本、几何、变换（斜切）、发光、段位样式 —— 「突破像素」的核心调参
  *  - widget：小组件配置（Claude 会话状态：桥接地址、显示项）
@@ -24,12 +24,12 @@ import type { DigitLayer, Layer, WidgetLayer } from '@/engine/types'
 export function PropertyPanel() {
   const layer = useSelectedLayer()
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col border-l bg-card">
-      <div className="px-3 py-2">
+    <div className="flex h-full w-full flex-col bg-card">
+      <div className="flex h-9 items-center px-3" data-testid="prop-header">
         <h2 className="text-sm font-medium">属性</h2>
       </div>
       <Separator />
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1" data-testid="prop-scroll">
         <div className="flex flex-col gap-4 p-3">
           {layer === null || layer.type === 'pixel' ? (
             <SceneProps />
@@ -40,7 +40,7 @@ export function PropertyPanel() {
           )}
         </div>
       </ScrollArea>
-    </aside>
+    </div>
   )
 }
 
@@ -67,7 +67,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function CommonProps({ layer }: { layer: Layer }) {
   const updateLayer = useSceneStore((s) => s.updateLayer)
   return (
-    <Section title="图层">
+    <Section title="小组件">
       <Field label="名称">
         <Input
           value={layer.name}
@@ -91,10 +91,11 @@ function CommonProps({ layer }: { layer: Layer }) {
 }
 
 function SceneProps() {
+  // 与「小组件」面板的空态文案保持同样的排版（居中、小号、弱化色）
   return (
-    <Section title="场景">
-      <p className="text-xs text-muted-foreground">选中一个图层以编辑其属性。</p>
-    </Section>
+    <p className="px-2 py-6 text-center text-xs text-muted-foreground" data-testid="prop-empty">
+      选中一个小组件以编辑其属性
+    </p>
   )
 }
 

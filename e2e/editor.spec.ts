@@ -61,8 +61,9 @@ test.describe('编辑器 — 基础交互', () => {
     })
     expect(state.size).toEqual({ w: 40, h: 30 })
     const palette = state.palette.map((c) => c.toLowerCase())
-    expect(palette).toContain('#ff0000')
-    expect(palette).toContain('#00ff00')
+    // 颜色会吸附到 MARD 拼豆色卡：纯红 → F5，纯绿 → B5
+    expect(palette).toContain('#e10328')
+    expect(palette).toContain('#39e158')
     expect(state.lit).toBeGreaterThan(0)
   })
 
@@ -74,6 +75,56 @@ test.describe('编辑器 — 基础交互', () => {
     await expect(page.getByTestId('add-digit')).toBeVisible()
     expect(await page.getByTestId('add-pixel').count()).toBe(0)
     expect(await page.getByTestId('add-widget').count()).toBe(1)
+  })
+
+  test('⌘N 打开新建、⌘S 打开保存对话框', async ({ page }) => {
+    await gotoEditor(page)
+    await page.keyboard.press('Control+n')
+    await expect(page.getByTestId('new-scene-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('new-scene-dialog')).toBeHidden()
+    await page.keyboard.press('Control+s')
+    await expect(page.getByTestId('save-dialog')).toBeVisible()
+  })
+
+  test('拼豆开关文案在「副屏」与「拼豆」之间切换', async ({ page }) => {
+    await gotoEditor(page)
+    const toolbar = page.locator('header')
+    await expect(toolbar).toContainText('副屏')
+    await page.getByTestId('beads-mode').click()
+    await expect(toolbar).toContainText('拼豆')
+    await expect(toolbar).not.toContainText('副屏')
+  })
+
+  test('画笔颜色显示拼豆色号并吸附手选颜色', async ({ page }) => {
+    await gotoEditor(page)
+    await page.evaluate(() => (window as any).__digiboard.scene.getState().setBrushColor('#ff0000'))
+    expect(await page.evaluate(() => (window as any).__digiboard.scene.getState().brushColor)).toBe(
+      '#e10328',
+    )
+    await page.getByTestId('brush-color').hover()
+    const tooltip = page.getByRole('tooltip')
+    await expect(tooltip).toContainText('F5')
+    await expect(tooltip).not.toContainText('#')
+  })
+
+  test('保存按钮弹出对话框：可选 YAML 或 PNG', async ({ page }) => {
+    await gotoEditor(page)
+    await page.getByTestId('save-scene').click()
+    await expect(page.getByTestId('save-dialog')).toBeVisible()
+    await expect(page.getByTestId('save-yaml')).toBeVisible()
+    await expect(page.getByTestId('save-png')).toBeVisible()
+
+    const yamlDownload = page.waitForEvent('download')
+    await page.getByTestId('save-yaml').click()
+    expect((await yamlDownload).suggestedFilename()).toMatch(/\.yml$/)
+    await expect(page.getByTestId('save-dialog')).toBeHidden()
+
+    await page.getByTestId('save-scene').click()
+    const pngDownload = page.waitForEvent('download')
+    await page.getByTestId('save-png').click()
+    expect((await pngDownload).suggestedFilename()).toMatch(/\.png$/)
+    await expect(page.getByTestId('save-dialog')).toBeHidden()
   })
 
   test('新建按钮弹出对话框，默认生成 40×30 空白画布', async ({ page }) => {
@@ -111,6 +162,8 @@ test.describe('编辑器 — 基础交互', () => {
     expect((await sampleBoundary())[3]).toBe(255)
 
     await expect(page.getByTestId('beads-guides')).toBeVisible()
+    // 每格半透灰线
+    expect(await page.getByTestId('beads-cell-guide').count()).toBeGreaterThan(0)
     const labels = page.getByTestId('beads-col-label')
     expect(await labels.count()).toBeGreaterThan(0)
     await expect(labels.first()).toHaveText(/^\d+$/)
@@ -142,19 +195,31 @@ test.describe('编辑器 — 基础交互', () => {
     const legend = page.getByTestId('beads-legend')
     await expect(legend).toBeVisible()
     await expect(legend).toContainText('共 3 颗')
-    const redItem = legend.locator('button', { hasText: '#ff0000' })
-    const greenItem = legend.locator('button', { hasText: '#00ff00' })
+    // 图例显示拼豆色号（MARD 221 色）而不是 HEX
+    const redItem = page.getByTestId('beads-legend-item-2')
+    const greenItem = page.getByTestId('beads-legend-item-3')
+    await expect(redItem).toHaveAttribute('data-bead-code', 'F5')
+    await expect(greenItem).toHaveAttribute('data-bead-code', 'B5')
+    await expect(redItem).toContainText('F5')
+    await expect(greenItem).toContainText('B5')
+    await expect(redItem).not.toContainText('#')
     await expect(redItem).toContainText('×2')
     await expect(greenItem).toContainText('×1')
+    // 图例按拼豆色号自然排序：B5 < F5
+    const codes = await legend
+      .locator('[data-bead-code]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-bead-code')))
+    expect(codes).toEqual(['B5', 'F5'])
 
     const sample = () =>
       page.evaluate(() => {
         const c = document.querySelector('[data-testid="scene-canvas"] canvas') as HTMLCanvasElement
         const ctx = c.getContext('2d')!
         const unit = c.width / 80
+        // 取格子左上角（避开中央的色号小字）
         const px = (x: number, y: number) =>
           Array.from(
-            ctx.getImageData(Math.floor((x + 0.5) * unit), Math.floor((y + 0.5) * unit), 1, 1).data,
+            ctx.getImageData(Math.floor((x + 0.1) * unit), Math.floor((y + 0.1) * unit), 1, 1).data,
           )
         return { red: px(1, 1), green: px(3, 1) }
       })
@@ -164,46 +229,94 @@ test.describe('编辑器 — 基础交互', () => {
     await expect(redItem).toHaveAttribute('aria-pressed', 'true')
     await page.waitForTimeout(150)
     const filtered = await sample()
-    expect(filtered.red[0]).toBe(255) // 红色保留
-    expect(filtered.green[1]).not.toBe(255) // 绿色被隐藏
+    expect(filtered.red[0]).toBe(255) // 红色保持不透明
+    // 其他颜色不消失，而是降到 30% 透明度：Green 与灭点底色混合后约 93
+    expect(filtered.green[1]).toBeGreaterThan(80)
+    expect(filtered.green[1]).toBeLessThan(110)
 
     await page.getByTestId('beads-legend-clear').click()
     await page.waitForTimeout(150)
     expect((await sample()).green[1]).toBe(255)
   })
 
-  test('拼豆模式导出 PNG：直角无缝隙并含红色参考线', async ({ page }) => {
+  test('拼豆模式导出 PNG：行列序号 + 图例 + 每格灰线与 5/10 红线', async ({ page }) => {
     await gotoEditor(page)
     await drawPixelViaStore(page, 1, 1)
     await drawPixelViaStore(page, 2, 1)
     const res = await page.evaluate(async () => {
       const st = (window as any).__digiboard.scene.getState()
       const mod = await import('/src/engine/export/to-png.ts')
-      const read = (c: HTMLCanvasElement) => {
-        const ctx = c.getContext('2d')!
-        const px = (x: number, y: number) => Array.from(ctx.getImageData(x, y, 1, 1).data)
-        let maxR = 0
-        let minG = 255
-        for (let x = 36; x <= 42; x++) {
-          const p = px(x, 2)
-          maxR = Math.max(maxR, p[0] ?? 0)
-          minG = Math.min(minG, p[1] ?? 255)
+      const be = await import('/src/engine/export/beads-export.ts')
+      const unit = 8
+      const m = be.measureBeadsExport(st.scene, unit)
+      const annotated = await mod.renderSceneToCanvas(st.scene, { pixelSize: unit, beads: true })
+      const plain = await mod.renderSceneToCanvas(st.scene, {
+        pixelSize: unit,
+        beads: true,
+        beadsAnnotations: false,
+      })
+      const normal = await mod.renderSceneToCanvas(st.scene, { pixelSize: unit })
+      const ctx = annotated.getContext('2d')!
+      const nctx = normal.getContext('2d')!
+      const px = (c: CanvasRenderingContext2D, x: number, y: number) =>
+        Array.from(c.getImageData(Math.floor(x), Math.floor(y), 1, 1).data)
+      const nonBlack = (
+        c: CanvasRenderingContext2D,
+        x0: number,
+        y0: number,
+        x1: number,
+        y1: number,
+      ) => {
+        const data = c.getImageData(x0, y0, x1 - x0, y1 - y0).data
+        let n = 0
+        for (let i = 0; i < data.length; i += 4) {
+          if ((data[i] ?? 0) + (data[i + 1] ?? 0) + (data[i + 2] ?? 0) > 30) n++
         }
-        return {
-          boundary: px(16, 12), // 第 2/3 列之间的格边界
-          guide5: { r: maxR, g: minG },
-        }
+        return n
       }
-      const withBeads = read(await mod.renderSceneToCanvas(st.scene, { pixelSize: 8, beads: true }))
-      const normal = read(await mod.renderSceneToCanvas(st.scene, { pixelSize: 8 }))
-      return { withBeads, normal }
+      let maxRed = 0
+      for (let y = m.pad; y < m.pad + m.boardH; y++) {
+        const p = px(ctx, m.pad + 5 * unit + 0.5, y + 0.5)
+        maxRed = Math.max(maxRed, p[0] ?? 0)
+      }
+      return {
+        annotated: { w: annotated.width, h: annotated.height },
+        plain: { w: plain.width, h: plain.height },
+        metrics: {
+          pad: m.pad,
+          width: m.width,
+          height: m.height,
+          boardW: m.boardW,
+          boardH: m.boardH,
+        },
+        cell: px(ctx, m.pad + 1.15 * unit, m.pad + 1.15 * unit),
+        boundary: px(ctx, m.pad + 2 * unit + 0.5, m.pad + 1.2 * unit),
+        normalBoundary: px(nctx, 2 * unit + 0.5, 1.5 * unit),
+        colLabel: nonBlack(ctx, m.pad, 0, m.pad + m.boardW, m.pad),
+        rowLabel: nonBlack(ctx, 0, m.pad, m.pad, m.pad + m.boardH),
+        legend: nonBlack(ctx, m.pad, m.pad + m.boardH, m.width - m.pad, m.height),
+        maxRed,
+      }
     })
-    // 普通模式格边界是板底黑色（留缝）；拼豆模式整格为像素色
-    expect(res.normal.boundary.slice(0, 3)).toEqual([0, 0, 0])
-    expect(res.withBeads.boundary.slice(0, 3)).toEqual([255, 170, 204])
-    // 第 5 格边界有红色参考线（虚线，y=2 落在实线段上）
-    expect(res.withBeads.guide5.r).toBeGreaterThan(120)
-    expect(res.withBeads.guide5.g).toBeLessThan(90)
+    // 拼豆导出为画布区留出序号边距，并在下方追加图例
+    expect(res.annotated.w).toBe(res.metrics.width)
+    expect(res.annotated.h).toBe(res.metrics.height)
+    expect(res.metrics.width).toBeGreaterThan(res.metrics.boardW)
+    expect(res.metrics.height).toBeGreaterThan(res.metrics.boardH)
+    // 关闭附加信息时与普通导出一致，只含画布区
+    expect(res.plain).toEqual({ w: res.metrics.boardW, h: res.metrics.boardH })
+
+    // 格子内部是像素色；格边界被半透灰线提亮（普通模式此处是黑缝）
+    expect(res.cell.slice(0, 3)).toEqual([255, 170, 204])
+    expect(res.normalBoundary.slice(0, 3)).toEqual([0, 0, 0])
+    expect(res.boundary[1]).toBeGreaterThan(170)
+
+    // 第 5 格红色参考线仍存在
+    expect(res.maxRed).toBeGreaterThan(120)
+    // 四周序号与下方图例都真实绘制
+    expect(res.colLabel).toBeGreaterThan(0)
+    expect(res.rowLabel).toBeGreaterThan(0)
+    expect(res.legend).toBeGreaterThan(0)
   })
 
   test('点阵尺寸上限 200×200', async ({ page }) => {
@@ -297,7 +410,7 @@ test.describe('编辑器 — 像素绘制', () => {
         v2: px.pixels[1 * px.w + 2],
       }
     })
-    expect(state.brushColor).toBe('#00ff00')
+    expect(state.brushColor).toBe('#39e158') // 吸附到拼豆色卡 B5
     expect(state.palette).toContain('#ff0000')
     expect(state.palette).toContain('#00ff00')
     expect(state.v1).not.toBe(state.v2)
@@ -470,5 +583,189 @@ test.describe('编辑器 — 撤销/重做', () => {
     await page.evaluate(() => (window as any).__digiboard.scene.getState().fillAt(0, 0, '#ffaacc'))
     await page.keyboard.press('Control+z') // Playwright chromium 下 meta 用 Control 亦可触发 handler
     expect(await countLitPixels(page)).toBe(0)
+  })
+})
+
+test.describe('编辑器 — 侧边栏滚动', () => {
+  /** 面板超长时，滚动容器应被约束在面板高度内，并可真正滚动。 */
+  test('属性 / 小组件面板内部滚动，不撑破侧栏', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 520 })
+    await gotoEditor(page)
+
+    // 属性面板：选中数码管（属性项最多）；小组件面板：塞满图层列表
+    const scene = await getScene(page)
+    const digitId = scene.layers.find((l) => l.type === 'digit')!.id
+    await page.evaluate((id) => (window as any).__digiboard.scene.getState().select(id), digitId)
+    await page.evaluate(() => {
+      const s = (window as any).__digiboard.scene.getState()
+      for (let i = 0; i < 12; i++) s.addLayer('widget', 'claude-status')
+    })
+
+    for (const testId of ['prop-scroll', 'layer-scroll']) {
+      const root = page.getByTestId(testId)
+      await expect(root).toBeVisible()
+
+      const metrics = await root.evaluate((el) => {
+        const viewport = el.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
+        const panel = el.parentElement as HTMLElement
+        return {
+          rootBottom: el.getBoundingClientRect().bottom,
+          panelBottom: panel.getBoundingClientRect().bottom,
+          scrollHeight: viewport.scrollHeight,
+          clientHeight: viewport.clientHeight,
+        }
+      })
+      // 内容确实超出可视区，且滚动容器没有溢出面板
+      expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight)
+      expect(metrics.rootBottom).toBeLessThanOrEqual(metrics.panelBottom + 0.5)
+
+      const scrolled = await root.evaluate((el) => {
+        const viewport = el.querySelector('[data-slot="scroll-area-viewport"]') as HTMLElement
+        viewport.scrollTop = 10_000
+        return viewport.scrollTop
+      })
+      expect(scrolled).toBeGreaterThan(0)
+    }
+  })
+})
+
+test.describe('编辑器 — 顶部栏', () => {
+  test('画笔色号常驻显示在色块右侧，不需要 hover', async ({ page }) => {
+    await gotoEditor(page)
+    await page.evaluate(() => (window as any).__digiboard.scene.getState().setBrushColor('#ff0000'))
+    const code = page.getByTestId('brush-color-code')
+    await expect(code).toBeVisible()
+    await expect(code).toHaveText('F5')
+    // 未 hover 任何元素时也可见（不依赖 tooltip）
+    await page.mouse.move(2, 2)
+    await expect(code).toBeVisible()
+  })
+
+  test('播放是纯图标按钮，不再带文字', async ({ page }) => {
+    await gotoEditor(page)
+    const play = page.getByTestId('play')
+    await expect(play).toBeVisible()
+    await expect(play).toHaveText('')
+    await expect(play).toHaveAttribute('aria-label', '播放')
+  })
+
+  test('侧栏按钮隐藏属性与小组件面板，刷新后保持', async ({ page }) => {
+    await gotoEditor(page)
+    await expect(page.getByTestId('sidebar')).toBeVisible()
+    await expect(page.getByTestId('prop-scroll')).toBeVisible()
+
+    await page.getByTestId('toggle-sidebar').click()
+    await expect(page.getByTestId('sidebar')).toHaveCount(0)
+    await expect(page.getByTestId('prop-scroll')).toHaveCount(0)
+    await expect(page.getByTestId('layer-scroll')).toHaveCount(0)
+
+    await page.reload()
+    await expect(page.getByTestId('scene-canvas')).toBeVisible()
+    await expect(page.getByTestId('sidebar')).toHaveCount(0)
+
+    await page.getByTestId('toggle-sidebar').click()
+    await expect(page.getByTestId('sidebar')).toBeVisible()
+  })
+})
+
+test.describe('编辑器 — 侧边栏面板标题与空态', () => {
+  test('「属性」与「小组件」标题栏高度一致', async ({ page }) => {
+    await gotoEditor(page)
+    const height = (id: string) =>
+      page.getByTestId(id).evaluate((el) => (el as HTMLElement).getBoundingClientRect().height)
+    const prop = await height('prop-header')
+    const layer = await height('layer-header')
+    expect(prop).toBeGreaterThan(0)
+    expect(layer).toBeCloseTo(prop, 1)
+  })
+
+  test('属性空态文案与小组件空态同一排版', async ({ page }) => {
+    await gotoEditor(page)
+    // 取消选中并清空所有内容层，让两个面板同时处于空态
+    await page.evaluate(() => {
+      const s = (window as any).__digiboard.scene.getState()
+      s.select(null)
+      s.scene.layers.filter((l: any) => l.type !== 'pixel').forEach((l: any) => s.removeLayer(l.id))
+    })
+
+    const propEmpty = page.getByTestId('prop-empty')
+    await expect(propEmpty).toHaveText('选中一个小组件以编辑其属性')
+    const layerEmpty = page.getByText('暂无小组件，点右上角 + 添加')
+    await expect(layerEmpty).toBeVisible()
+
+    const styleOf = (locator: typeof propEmpty) =>
+      locator.evaluate((el) => {
+        const c = getComputedStyle(el as HTMLElement)
+        return {
+          fontSize: c.fontSize,
+          textAlign: c.textAlign,
+          color: c.color,
+          paddingTop: c.paddingTop,
+          paddingLeft: c.paddingLeft,
+        }
+      })
+    expect(await styleOf(propEmpty)).toEqual(await styleOf(layerEmpty))
+  })
+})
+
+test.describe('新建 — 从 YAML 载入', () => {
+  const YAML = `version: 1
+size:
+  w: 16
+  h: 9
+layers:
+  - type: pixel
+    id: p1
+    name: 像素层
+    visible: true
+    locked: false
+    opacity: 1
+    palette: ["#ff0000"]
+    offColor: "#111111"
+    w: 16
+    h: 9
+    pixels:
+      encoding: rle
+      w: 16
+      h: 9
+      data: [0, 144]
+`
+
+  test('载入 .yml 后整场景替换，尺寸随文件', async ({ page }) => {
+    await gotoEditor(page)
+    await page.getByTestId('new-scene').click()
+    await page.getByTestId('new-mode-yaml').click()
+    // YAML 自带尺寸，不再显示宽高输入
+    await expect(page.getByTestId('new-size-w')).toHaveCount(0)
+
+    await page.getByTestId('new-yaml-input').setInputFiles({
+      name: 'scene.yml',
+      mimeType: 'text/yaml',
+      buffer: Buffer.from(YAML),
+    })
+    await expect(page.getByTestId('new-yaml-summary')).toContainText('scene.yml · 16×9')
+
+    await page.getByTestId('new-create').click()
+    await expect(page.getByTestId('new-scene-dialog')).toHaveCount(0)
+    const scene = await getScene(page)
+    expect(scene.size).toEqual({ w: 16, h: 9 })
+    expect(scene.layerCount).toBe(1)
+  })
+
+  test('非法 YAML 就地报错，不替换画布', async ({ page }) => {
+    await gotoEditor(page)
+    const before = await getScene(page)
+    await page.getByTestId('new-scene').click()
+    await page.getByTestId('new-mode-yaml').click()
+    await page.getByTestId('new-yaml-input').setInputFiles({
+      name: 'bad.yml',
+      mimeType: 'text/yaml',
+      buffer: Buffer.from('foo: bar\n'),
+    })
+    await expect(page.getByText('缺少 size.w / size.h')).toBeVisible()
+    await expect(page.getByTestId('new-create')).toBeDisabled()
+
+    await page.getByRole('button', { name: '取消' }).click()
+    expect(await getScene(page)).toEqual(before)
   })
 })
