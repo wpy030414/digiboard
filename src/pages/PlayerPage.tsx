@@ -3,7 +3,7 @@
  *
  * 载入来源（优先级）：
  *  1. URL query `?scene=<base64-yml>`（编辑器「播放」跳转而来）
- *  2. 无来源时展示一个内置演示场景 + 引导
+ *  2. 无来源时展示内置预设屏幕
  *
  * 本地 YAML 的导入入口已迁移到编辑器「新建 → 从 YAML 载入」，播放页保持纯展示。
  * 自适应：scale = min(视口宽/场景宽, 视口高/场景高)，等比铺满、居中。
@@ -16,32 +16,9 @@ import { Pencil, Maximize, Minimize } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SceneCanvas } from '@/engine/render/SceneCanvas'
 import type { Scene } from '@/engine/types'
-import { createDefaultScene } from '@/engine/factories'
+import { loadPresetScene } from '@/engine/presets'
 import { sceneFromBase64Yaml } from '@/engine/export/to-yaml'
 import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
-
-function demoScene(): Scene {
-  const scene = createDefaultScene({ w: 96, h: 54 })
-  // 演示：数码管显示时间感的数字 + 底部一条像素装饰
-  const digit = scene.layers.find((l) => l.type === 'digit')
-  if (digit && digit.type === 'digit') {
-    digit.text = '2077'
-    digit.digitHeight = 26
-    digit.x = 18
-    digit.y = 8
-    digit.color = '#ff3b5c'
-    digit.glowColor = '#ff3b5c'
-    digit.glow = 0.7
-    digit.skewX = -8
-  }
-  const px = scene.layers.find((l) => l.type === 'pixel')
-  if (px && px.type === 'pixel') {
-    for (let x = 0; x < scene.size.w; x++) {
-      if (x % 2 === 0) px.pixels[(scene.size.h - 3) * scene.size.w + x] = 1
-    }
-  }
-  return scene
-}
 
 export function PlayerPage() {
   const [searchParams] = useSearchParams()
@@ -52,10 +29,10 @@ export function PlayerPage() {
       try {
         return sceneFromBase64Yaml(b64)
       } catch (e) {
-        console.warn('URL 场景解析失败，使用演示场景', e)
+        console.warn('URL 场景解析失败，使用内置预设场景', e)
       }
     }
-    return demoScene()
+    return loadPresetScene()
   })
   const [scale, setScale] = useState(1)
   const [fullscreen, setFullscreen] = useState(false)
@@ -145,7 +122,7 @@ export function PlayerPage() {
 
       {!searchParams.get('scene') && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-white/40">
-          演示场景 · 在编辑器「新建 → 从 YAML 载入」打开自己的场景 · F 全屏 · E 返回编辑器
+          预设屏幕 · 在编辑器「新建 → 从 YAML 载入」打开自己的场景 · F 全屏 · E 返回编辑器
         </div>
       )}
     </div>

@@ -10,12 +10,13 @@ import {
 } from './helpers'
 
 test.describe('编辑器 — 基础交互', () => {
-  test('加载默认 80×60 场景，含像素层与数码管层', async ({ page }) => {
-    await gotoEditor(page)
+  test('新用户首次访问加载 40×30 预设屏幕，含像素、数码管与小组件', async ({ page }) => {
+    await gotoEditor(page, { preset: true })
     const scene = await getScene(page)
-    expect(scene.size).toEqual({ w: 80, h: 60 })
+    expect(scene.size).toEqual({ w: 40, h: 30 })
     expect(scene.layers.some((l) => l.type === 'pixel')).toBe(true)
     expect(scene.layers.some((l) => l.type === 'digit')).toBe(true)
+    expect(scene.layers.some((l) => l.type === 'widget')).toBe(true)
   })
 
   test('修改点阵尺寸并回车生效', async ({ page }) => {
@@ -92,7 +93,8 @@ test.describe('编辑器 — 基础交互', () => {
       mimeType: 'image/png',
       buffer,
     })
-    await page.getByTestId('new-matting').check()
+    await page.getByTestId('new-matting').click()
+    await expect(page.getByTestId('new-matting')).toHaveAttribute('data-state', 'checked')
     await page.getByTestId('new-create').click()
     await expect(page.getByTestId('new-scene-dialog')).toBeHidden({ timeout: 55_000 })
 

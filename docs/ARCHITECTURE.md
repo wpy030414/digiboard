@@ -88,7 +88,7 @@
 | `engine/export/vector-to-svg.ts`   | 矢量层→SVG 字符串（复用 digits/transform 几何，所见即所得）                                                                                                                    |
 | `editor/*`                         | Toolbar（新建/保存/工具/尺寸/缩放/播放/侧栏）、NewSceneDialog（空白/从 YAML 载入/图片）、SaveDialog（YAML/PNG）、PropertyPanel（右上属性表单）、LayerPanel（右下「小组件」树） |
 | `pages/EditorPage.tsx`             | 画布 + 右侧共享栏（属性 60% / 小组件 40%）、自适应缩放、键盘快捷键、导出/播放编排                                                                                              |
-| `pages/PlayerPage.tsx`             | 全屏只读：URL base64-yml / 内置演示场景，F 全屏 E 返回（YAML 导入在「新建」）                                                                                                  |
+| `pages/PlayerPage.tsx`             | 全屏只读：URL base64-yml / 内置预设屏幕，F 全屏 E 返回（YAML 导入在「新建」）                                                                                                  |
 | `widgets/claude-status/*`          | 小组件注册（index.ts）、渲染器（container-query 自适应）、状态 store、SSE hook（3s 超时断开并清空）、断连态渲染                                                                |
 | `bridge/server.mjs`                | 本地 SSE sidecar：枚举判活会话、jsonl 尾部反向扫描、聚合推送；`/events`(SSE) `/status`(快照)                                                                                   |
 

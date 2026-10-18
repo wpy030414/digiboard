@@ -110,10 +110,24 @@ export async function dragOnCanvas(
 }
 
 /** 等待编辑器就绪（画布 + 工具栏出现）。 */
-export async function gotoEditor(page: Page): Promise<void> {
+export interface GotoEditorOptions {
+  /** true = 保留新用户首次访问的预设场景，不做空白基线重置（预设相关用例）。 */
+  preset?: boolean
+}
+
+export async function gotoEditor(page: Page, opts: GotoEditorOptions = {}): Promise<void> {
   await page.goto('/')
   await expect(page.getByTestId('scene-canvas')).toBeVisible()
   await expect(page.getByTestId('tool-pen')).toBeVisible()
+  // 除预设用例外，统一回到 80×60 空白默认场景：像素计数、撤销等断言需要确定基线
+  if (!opts.preset) {
+    await page.evaluate(async () => {
+      const mod = await import('/src/engine/factories.ts')
+      const st = (window as any).__digiboard.scene.getState()
+      st.setScene(mod.createDefaultScene({ w: 80, h: 60 }))
+      st.select(null)
+    })
+  }
 }
 
 /** 等待播放页就绪。 */

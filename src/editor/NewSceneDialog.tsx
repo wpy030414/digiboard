@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { clampSceneSize } from '@/engine/factories'
 import { sceneFromYaml } from '@/engine/export/to-yaml'
@@ -257,17 +258,18 @@ export function NewSceneDialog({ open, onOpenChange }: NewSceneDialogProps) {
                   className="max-h-40 w-full rounded-md border object-contain"
                 />
               )}
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="new-matting" className="text-xs font-normal text-muted-foreground">
+                  主体抠图
+                </Label>
+                <Switch
+                  id="new-matting"
                   checked={matting}
                   disabled={busy}
                   data-testid="new-matting"
-                  onChange={(e) => setMatting(e.target.checked)}
-                  className="size-3.5 accent-primary"
+                  onCheckedChange={setMatting}
                 />
-                主体抠图（本地运行，首次加载约 4.4MB）
-              </label>
+              </div>
               {mattingStatus && (
                 <p className="text-xs text-muted-foreground" data-testid="new-matting-status">
                   {mattingStatus}

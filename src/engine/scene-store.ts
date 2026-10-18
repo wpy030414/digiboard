@@ -24,13 +24,13 @@ import {
   cloneLayer,
   cloneScene,
   createBlankScene,
-  createDefaultScene,
   createLayer,
   normalizeScene,
   resizeScene,
 } from './factories'
 import { bresenhamLine, floodFill, setPixel } from './pixels'
 import { loadPersistedScene } from './persistence'
+import { loadPresetScene } from './presets'
 import { MAX_BEAD_COLORS, nearestBeadColor } from './beads-palette'
 
 const MAX_HISTORY = 100
@@ -120,8 +120,8 @@ export const useSceneStore = create<SceneState>((set, get) => {
   }
 
   return {
-    // 优先恢复上次编辑（localStorage 防抖持久化），否则新建默认场景
-    scene: loadPersistedScene() ?? createDefaultScene(),
+    // 优先恢复上次编辑（localStorage 防抖持久化）；新用户首次访问展示内置预设屏幕
+    scene: loadPersistedScene() ?? loadPresetScene(),
     selectedId: null,
     // 刷新后默认停在指针工具：先观察与选中，再决定是否动笔
     tool: 'select',

@@ -18,9 +18,6 @@ import {
   ChevronsUp,
   ChevronsDown,
   Plus,
-  Square,
-  Hash,
-  LayoutGrid,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -34,13 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { useSceneStore } from '@/engine/scene-store'
-import type { Layer, LayerType } from '@/engine/types'
-
-const TYPE_META: Record<LayerType, { icon: typeof Hash; label: string }> = {
-  pixel: { icon: LayoutGrid, label: '像素层' },
-  digit: { icon: Hash, label: '数码管' },
-  widget: { icon: Square, label: '小组件' },
-}
+import type { Layer } from '@/engine/types'
 
 export function LayerPanel() {
   const scene = useSceneStore((s) => s.scene)
@@ -78,13 +69,13 @@ export function LayerPanel() {
           </Tooltip>
           <DropdownMenuContent align="end">
             <DropdownMenuItem data-testid="add-digit" onClick={() => addLayer('digit')}>
-              <Hash className="size-4" /> 数码管
+              数码管
             </DropdownMenuItem>
             <DropdownMenuItem
               data-testid="add-widget"
               onClick={() => addLayer('widget', 'claude-status')}
             >
-              <Square className="size-4" /> Claude 会话小组件
+              Claude 会话小组件
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -146,9 +137,6 @@ function LayerRow({
   onRemove,
   onReorder,
 }: LayerRowProps) {
-  const meta = TYPE_META[layer.type]
-  const Icon = meta.icon
-
   return (
     <li
       className={cn(
@@ -165,7 +153,6 @@ function LayerRow({
         onClick={onSelect}
         data-layer-id={layer.id}
       >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{layer.name}</span>
       </button>
 

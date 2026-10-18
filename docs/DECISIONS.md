@@ -130,7 +130,7 @@
 - 状态：已采纳
 - 背景：用户要求「每步编辑都需要防抖持久化到 localStorage」，避免误关页面丢失工作。
 - 考虑过的方案：每次 set 同步写（画笔拖拽会高频写）；zustand `persist` 中间件（会把历史栈/选中态一起序列化，且 Uint8Array 需要自定义 storage）；独立防抖器（选中）。
-- 决策：`engine/persistence.ts` 提供 `loadPersistedScene` / `savePersistedScene` / `createScenePersister`（400ms 防抖、flush、cancel），序列化复用 `sceneToYaml`；`EditorPage` 经 `usePersistScene` 订阅 store，只有 `scene` 引用变化才排队写入，卸载/`beforeunload`/页面隐藏时立即 flush。store 初始化优先读档，读不到或损坏时回退默认场景。
+- 决策：`engine/persistence.ts` 提供 `loadPersistedScene` / `savePersistedScene` / `createScenePersister`（400ms 防抖、flush、cancel），序列化复用 `sceneToYaml`；`EditorPage` 经 `usePersistScene` 订阅 store，只有 `scene` 引用变化才排队写入，卸载/`beforeunload`/页面隐藏时立即 flush。store 初始化优先读档，读不到或损坏时回退内置预设屏幕（`engine/presets.ts`，随包内置 YAML）。
 - 为什么选这个：复用已验证的 YAML round-trip，不引入第二套序列化；防抖把画笔拖拽合并成一次写入；只存场景本身，历史栈与选中态不落盘，避免存储膨胀。
 - 为什么不选其他：`persist` 中间件会持久化整个 store，风险与体积都不可控；同步写会卡住高频绘制。
 - 后果：localStorage 键 `digiboard.scene.v1`（带版本号）；存储不可用（隐私模式/配额满）时静默降级，不打断编辑。E2E 覆盖「编辑 → 等待防抖 → 刷新 → 场景恢复」。

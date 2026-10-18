@@ -157,10 +157,10 @@ test.describe('播放页 — 场景还原', () => {
     expect(restored.hasRle).toBe(true)
   })
 
-  test('播放页无 URL 场景时展示演示场景', async ({ page }) => {
+  test('播放页无 URL 场景时展示内置预设屏幕', async ({ page }) => {
     await gotoPlayer(page)
     await expect(page.getByTestId('player-page')).toBeVisible()
-    // 演示场景含数码管
+    // 预设屏幕含数码管
     const hasDigit = await page.evaluate(
       () => document.querySelector('svg[data-digit-layer]') !== null,
     )
