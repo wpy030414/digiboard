@@ -11,7 +11,7 @@ import { useClaudeStatus } from '@/widgets/claude-status/use-claude-status'
 const basename = import.meta.env.BASE_URL.replace(/\/$/, '')
 
 export default function App() {
-  // 全应用挂一次：驱动 Claude 会话状态 store（SSE 连接或 mock 降级），
+  // 全应用挂一次：驱动 Claude 会话状态 store（SSE 连接；断连不注入演示数据），
   // 编辑器与播放页共享同一单例 store，避免路由切换时重复建连。
   useClaudeStatus()
 

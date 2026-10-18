@@ -15,7 +15,7 @@ import type { DigitLayer, Scene, WidgetLayer } from '../types'
 import { SCREEN_BACKGROUND } from '../types'
 import { BEAD_CODE_MIN_CELL, drawBeadsGuides, drawPixelDots } from '../dots'
 import { computeReservedMask } from '../footprint'
-import { vectorLayerToSvgDoc, type WidgetSnapshot } from './vector-to-svg'
+import { loadPixelFontForExport, vectorLayerToSvgDoc, type WidgetSnapshot } from './vector-to-svg'
 import { drawBeadsAnnotations, measureBeadsExport } from './beads-export'
 
 export interface ExportPngOptions {
@@ -77,6 +77,8 @@ export async function renderSceneToCanvas(
   const vectorLayers = scene.layers.filter(
     (l): l is DigitLayer | WidgetLayer => l.visible && (l.type === 'digit' || l.type === 'widget'),
   )
+  // 小组件是 DOM 渲染的像素字体：导出前把同一份 woff2 内嵌进 SVG
+  if (vectorLayers.some((l) => l.type === 'widget')) await loadPixelFontForExport()
   await Promise.all(
     vectorLayers.map(async (layer) => {
       const svg = vectorLayerToSvgDoc(layer, scene, pixelSize, opts.snapshots?.get(layer.id))

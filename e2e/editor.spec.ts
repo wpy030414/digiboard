@@ -593,12 +593,55 @@ test.describe('编辑器 — 图层管理', () => {
     expect(after.layers.filter((l) => l.type === 'digit').length).toBeGreaterThanOrEqual(2)
   })
 
+  test('数码管时钟模式：按时间渲染并带冒号双点', async ({ page }) => {
+    await gotoEditor(page)
+    const id = await page.evaluate(() => {
+      const s = (window as any).__digiboard.scene.getState()
+      const digit = s.scene.layers.find((l: any) => l.type === 'digit')
+      s.updateLayer(digit.id, { clockMode: 'time', clockShowSeconds: true, clockHour12: false })
+      return digit.id
+    })
+    const saved = await page.evaluate((digitId) => {
+      const l = (window as any).__digiboard.scene
+        .getState()
+        .scene.layers.find((x: any) => x.id === digitId)
+      return { mode: l.clockMode, sec: l.clockShowSeconds, h12: l.clockHour12 }
+    }, id)
+    expect(saved).toEqual({ mode: 'time', sec: true, h12: false })
+
+    // 时间文本里的冒号渲染为上下两个点（单条 path 含两段子路径）
+    const hasColon = await page.evaluate(() => {
+      const svg = document.querySelector('svg[data-digit-layer]')
+      if (!svg) return false
+      return [...svg.querySelectorAll('path')].some(
+        (p) => (p.getAttribute('d')?.match(/M /g)?.length ?? 0) === 2,
+      )
+    })
+    expect(hasColon).toBe(true)
+  })
+
   test('添加 Claude 会话小组件图层', async ({ page }) => {
     await gotoEditor(page)
     await page.getByTestId('add-layer').click()
     await page.getByTestId('add-widget').click()
     const scene = await getScene(page)
     expect(scene.layers.some((l) => l.type === 'widget')).toBe(true)
+  })
+
+  test('小组件强制吸附到整数网格', async ({ page }) => {
+    await gotoEditor(page)
+    await page.getByTestId('add-layer').click()
+    await page.getByTestId('add-widget').click()
+    const rect = await page.evaluate(() => {
+      const s = (window as any).__digiboard.scene.getState()
+      const wg = s.scene.layers.find((l: any) => l.type === 'widget')
+      s.updateLayer(wg.id, { x: 4.6, y: 7.2, width: 12.5, height: 0.2 })
+      const n = (window as any).__digiboard.scene
+        .getState()
+        .scene.layers.find((l: any) => l.id === wg.id)
+      return { x: n.x, y: n.y, width: n.width, height: n.height }
+    })
+    expect(rect).toEqual({ x: 5, y: 7, width: 13, height: 1 })
   })
 
   test('删除图层', async ({ page }) => {

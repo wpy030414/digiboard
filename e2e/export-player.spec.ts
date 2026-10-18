@@ -201,18 +201,27 @@ test.describe('播放页 — 场景还原', () => {
   })
 })
 
-test.describe('Claude 会话小组件 — 降级与渲染', () => {
-  test('无 bridge 时小组件降级为 DEMO 并渲染会话', async ({ page }) => {
+test.describe('Claude 会话小组件 — 连接与断连', () => {
+  test('无 bridge 时小组件显示 DISCONNECT 且不注入演示数据', async ({ page }) => {
     await gotoEditor(page)
     await page.getByTestId('add-layer').click()
     await page.getByTestId('add-widget').click()
 
+    // 显式指向一个不存在的端口，避免本机恰好运行着 bridge 时误连成功
+    await page.evaluate(() => {
+      const s = (window as any).__digiboard.scene.getState()
+      const wg = s.scene.layers.find((l: any) => l.type === 'widget')
+      s.updateLayer(wg.id, {
+        config: { ...wg.config, bridgeUrl: 'http://127.0.0.1:43999/events' },
+      })
+    })
+
     const widget = page.getByTestId('claude-status-widget')
     await expect(widget).toBeVisible()
-    // 无本地 bridge => 3s 超时后降级 mock（DEMO 徽标）；等待降级完成
-    await expect(widget).toContainText('DEMO', { timeout: 6000 })
-    // mock 会话名出现
-    await expect(widget).toContainText('digiboard-04')
+    // bridge 不可达 => 3s 超时后断开，不注入任何演示数据
+    await expect(widget).toContainText('DISCONNECT', { timeout: 8000 })
+    await expect(widget).not.toContainText('DEMO')
+    await expect(widget).toContainText('无活跃会话')
   })
 
   test('连接真实 bridge 时小组件显示 LIVE 与本机会话', async ({ page }) => {

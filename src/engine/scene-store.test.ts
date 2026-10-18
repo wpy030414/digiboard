@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useSceneStore } from './scene-store'
 import { createDefaultScene } from './factories'
-import type { DigitLayer, PixelLayer } from './types'
+import type { DigitLayer, PixelLayer, WidgetLayer } from './types'
 import { countLit, getPixel } from './pixels'
 
 /** 每个测试前重置 store 到干净场景。 */
@@ -32,6 +32,12 @@ describe('scene-store — 初始化', () => {
   it('默认尺寸为 8x6（测试参数）', () => {
     expect(scene().size).toEqual({ w: 8, h: 6 })
     expect(pixelLayers()[0]!.pixels.length).toBe(48)
+  })
+
+  it('默认数码管字符高度为 4 单位，横纵边距为 0', () => {
+    expect(digitLayers()[0]!.digitHeight).toBe(4)
+    expect(digitLayers()[0]!.paddingX).toBe(0)
+    expect(digitLayers()[0]!.paddingY).toBe(0)
   })
 })
 
@@ -168,6 +174,17 @@ describe('scene-store — 图层管理', () => {
     const before = digitLayers()[0]!.color
     store().updateLayer<DigitLayer>(id, { text: '7' })
     expect(digitLayers()[0]!.color).toBe(before)
+  })
+
+  it('updateLayer 强制把小组件吸附到整数网格', () => {
+    store().addLayer('widget', 'claude-status')
+    const wg = scene().layers.find((l) => l.type === 'widget') as WidgetLayer
+    store().updateLayer<WidgetLayer>(wg.id, { x: 10.6, y: 3.2, width: 20.5, height: 0.2 })
+    const next = scene().layers.find((l) => l.id === wg.id) as WidgetLayer
+    expect(next.x).toBe(11)
+    expect(next.y).toBe(3)
+    expect(next.width).toBe(21)
+    expect(next.height).toBe(1)
   })
 })
 

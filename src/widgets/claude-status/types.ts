@@ -4,7 +4,7 @@
  * 数据来源：本机 `~/.claude/sessions/<pid>.json`（实时 status/cwd/name/version）
  * 与 `~/.claude/projects/<escaped-cwd>/<sessionId>.jsonl`（model、token 用量、
  * 最近消息、当前工具）。浏览器沙箱读不到本地文件，故由本地 bridge 脚本聚合，
- * 经 SSE 推送给前端。无 bridge 时回退到内置 mock，保证纯静态部署也能演示。
+ * 经 SSE 推送给前端。无 bridge 时前端不注入任何演示数据，只显示 DISCONNECT。
  */
 
 /** 会话活跃状态。waiting = 被需要用户交互的东西阻塞（权限对话框/输入等）。 */
@@ -53,4 +53,4 @@ export interface ClaudeStatusPayload {
 }
 
 /** SSE 连接状态。 */
-export type ConnectionStatus = 'connecting' | 'live' | 'mock' | 'error'
+export type ConnectionStatus = 'connecting' | 'live' | 'error'

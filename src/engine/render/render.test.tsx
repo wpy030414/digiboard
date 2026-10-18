@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { PixelCanvas, hexToRgba } from './PixelCanvas'
 import { DigitLayerView } from './DigitLayerView'
 import { WidgetLayerView, registerWidget } from './WidgetLayerView'
@@ -11,6 +11,7 @@ import {
   createDefaultScene,
 } from '../factories'
 import { DEFAULT_OFF_DOT_COLOR, type Scene } from '../types'
+import { digitGlowPadding } from '../footprint'
 
 // —— mock canvas 2d context（jsdom 无真实实现）——
 interface DotTrace {
@@ -135,14 +136,14 @@ describe('DigitLayerView — 矢量突破像素限制', () => {
   })
 
   it('数字 8 点亮七段（含暗底衬则更多 path）', () => {
-    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '8', showOffSegments: false })
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '8', showOffSegments: false, glow: 0 })
     const { container } = render(<DigitLayerView layer={layer} scale={1} />)
     const paths = container.querySelectorAll('path')
     expect(paths.length).toBe(7) // a-g 全亮
   })
 
   it('showOffSegments 时每字符渲染 7 暗底 + 点亮段', () => {
-    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '1', showOffSegments: true })
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '1', showOffSegments: true, glow: 0 })
     const { container } = render(<DigitLayerView layer={layer} scale={1} />)
     // '1' 点亮 2 段(b,c) + 7 暗底 = 9
     expect(container.querySelectorAll('path').length).toBe(9)
@@ -182,17 +183,110 @@ describe('DigitLayerView — 矢量突破像素限制', () => {
     expect(Math.abs(nums[2]!)).toBeGreaterThan(0.01) // c（skewX）
   })
 
-  it('glow>0 注入 filter 定义', () => {
+  it('glow>0 注入只产出辉光的滤镜，源图形单独绘制', () => {
+    const layer = createDigitLayer(
+      { w: 80, h: 60 },
+      { text: '8', glow: 0.8, showOffSegments: false },
+    )
+    const { container } = render(<DigitLayerView layer={layer} scale={2} />)
+    const filter = container.querySelector('filter')!
+    expect(filter).toBeTruthy()
+    expect(filter.querySelector('feGaussianBlur')).toBeTruthy()
+    // 没有 feMerge SourceGraphic（源图形不会再被滤镜缓存拖累）
+    expect(filter.querySelector('feMerge')).toBeNull()
+    // 辉光层 + 源图形层各 7 条 path
+    expect(container.querySelectorAll('path').length).toBe(14)
+  })
+
+  it('glow=0 只绘制一份源图形', () => {
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '8', glow: 0, showOffSegments: false })
+    const { container } = render(<DigitLayerView layer={layer} scale={2} />)
+    expect(container.querySelector('filter')).toBeNull()
+    expect(container.querySelectorAll('path').length).toBe(7)
+  })
+
+  it('内容按占位矩形裁切（裁剪范围含发光扩散）', () => {
     const layer = createDigitLayer({ w: 80, h: 60 }, { text: '8', glow: 0.8 })
     const { container } = render(<DigitLayerView layer={layer} scale={2} />)
-    expect(container.querySelector('filter')).toBeTruthy()
-    expect(container.querySelector('feGaussianBlur')).toBeTruthy()
+    const clip = container.querySelector('clipPath')!
+    expect(clip.getAttribute('clipPathUnits')).toBe('userSpaceOnUse')
+    const rect = clip.querySelector('rect')!
+    const pad = digitGlowPadding(layer)
+    expect(pad).toBeGreaterThan(0)
+    expect(Number(rect.getAttribute('x'))).toBeCloseTo(-pad)
+    expect(Number(rect.getAttribute('y'))).toBeCloseTo(-pad)
   })
 
   it('小数点字符渲染点、不渲染段位', () => {
-    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '.', showOffSegments: false })
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: '.', showOffSegments: false, glow: 0 })
     const { container } = render(<DigitLayerView layer={layer} scale={1} />)
     expect(container.querySelectorAll('path').length).toBe(1)
+  })
+
+  it('冒号渲染上下两个点（单个 path 含两段子路径）', () => {
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: ':', showOffSegments: false, glow: 0 })
+    const { container } = render(<DigitLayerView layer={layer} scale={1} />)
+    const paths = container.querySelectorAll('path')
+    expect(paths.length).toBe(1)
+    expect(paths[0]!.getAttribute('d')!.match(/M /g)?.length).toBe(2)
+  })
+
+  it('时钟模式每秒自动刷新', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 9, 18, 15, 4, 5))
+      const layer = createDigitLayer(
+        { w: 80, h: 60 },
+        { clockMode: 'time', clockShowSeconds: true, showOffSegments: false },
+      )
+      const { container } = render(<DigitLayerView layer={layer} scale={1} />)
+      const before = container.querySelectorAll('path').length
+      vi.setSystemTime(new Date(2026, 9, 18, 15, 4, 6))
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(container.querySelectorAll('path').length).not.toBe(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('边距把内容整体内缩到占位矩形内', () => {
+    const layer = createDigitLayer(
+      { w: 80, h: 60 },
+      {
+        text: '8',
+        digitHeight: 10,
+        paddingX: 2,
+        paddingY: 3,
+        glow: 0,
+        showOffSegments: false,
+      },
+    )
+    const { container } = render(<DigitLayerView layer={layer} scale={1} />)
+    expect(container.querySelector('g[transform="translate(2 3)"]')).toBeTruthy()
+  })
+
+  it('时钟模式按本机时间渲染（text 被忽略）', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 9, 18, 15, 4, 5))
+      const layer = createDigitLayer(
+        { w: 80, h: 60 },
+        {
+          text: '9999',
+          clockMode: 'time',
+          clockShowSeconds: false,
+          showOffSegments: false,
+          glow: 0,
+        },
+      )
+      const { container } = render(<DigitLayerView layer={layer} scale={1} />)
+      // "15:04" => 1(2) + 5(5) + 冒号(1) + 0(6) + 4(4) = 18 条 path
+      expect(container.querySelectorAll('path').length).toBe(18)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -219,6 +313,13 @@ describe('WidgetLayerView — 小组件浮层', () => {
     const el = container.querySelector('[data-widget-layer]') as HTMLElement
     expect(el.style.width).toBe('120px')
     expect(el.style.height).toBe('60px')
+  })
+
+  it('内容不会溢出占位矩形（overflow: hidden）', () => {
+    const layer = createWidgetLayer({ w: 100, h: 50 }, 'claude-status')
+    const { container } = render(<WidgetLayerView layer={layer} scale={2} />)
+    const el = container.querySelector('[data-widget-layer]') as HTMLElement
+    expect(el.style.overflow).toBe('hidden')
   })
 })
 

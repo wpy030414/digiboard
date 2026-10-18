@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   digitLayerToSvg,
   widgetLayerToSvg,
@@ -64,6 +64,32 @@ describe('vector-to-svg — 数码管层序列化', () => {
     const svg = digitLayerToSvg(layer, 1)
     const litFills = svg.split(`fill="${layer.color}"`).length - 1
     expect(litFills).toBe(1) // 仅小数点方块
+  })
+
+  it('冒号生成上下两个点的单条 path', () => {
+    const layer = createDigitLayer({ w: 80, h: 60 }, { text: ':', showOffSegments: false, glow: 0 })
+    const svg = digitLayerToSvg(layer, 1)
+    const litFills = svg.split(`fill="${layer.color}"`).length - 1
+    expect(litFills).toBe(1)
+    expect(svg).toMatch(/d="[^"]*M [^"]*M /)
+  })
+
+  it('时钟模式导出时取当前时间快照（text 被忽略）', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date(2026, 9, 18, 15, 4, 5))
+      const layer = createDigitLayer(
+        { w: 80, h: 60 },
+        { text: '9999', clockMode: 'time', showOffSegments: false, glow: 0 },
+      )
+      const svg = digitLayerToSvg(layer, 1)
+      // "15:04" => 2 + 5 + 1(冒号) + 6 + 4 = 18
+      const litFills = svg.split(`fill="${layer.color}"`).length - 1
+      expect(litFills).toBe(18)
+      expect(svg).not.toContain('9999')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('颜色值被 XML 转义（防注入）', () => {

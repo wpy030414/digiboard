@@ -8,7 +8,42 @@
 
 import type { DigitLayer, Scene, WidgetLayer } from '../types'
 import { SEGMENTS, buildDigitGeometry, layoutText } from '../digits'
+import { digitDisplayText } from '../clock'
+import { digitGlowPadding } from '../footprint'
 import { layerToScene, matrixToSvg } from '../transform'
+import pixelFontUrl from '../../assets/fonts/fusion-pixel-8px-monospaced-zh_hans.woff2?url'
+
+/** 小组件使用的像素字体（屏幕在 index.css 里 @font-face；导出时内嵌）。 */
+const PIXEL_FONT_FAMILY = 'Fusion Pixel 8px, monospace'
+
+/**
+ * 导出用像素字体 CSS。SVG 以 data URL 载入 `<img>` 时读不到页面字体，
+ * 故 PNG 导出前按需抓取同一份 woff2 并内嵌为 data URI（浏览器缓存命中，
+ * 不增加主 bundle 体积）。
+ */
+let pixelFontCss = ''
+
+export async function loadPixelFontForExport(): Promise<void> {
+  if (pixelFontCss) return
+  try {
+    const url =
+      typeof document !== 'undefined' ? new URL(pixelFontUrl, document.baseURI) : pixelFontUrl
+    const res = await fetch(url)
+    if (!res.ok) return
+    const blob = await res.blob()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(blob)
+    })
+    pixelFontCss =
+      '<style>@font-face{font-family:"Fusion Pixel 8px";' +
+      `src:url("${dataUrl}") format("woff2");font-weight:400;font-style:normal;}</style>`
+  } catch {
+    // 抓取失败则退回 monospace（导出仍可用，只是字体不同）
+  }
+}
 
 function esc(s: string): string {
   return s
@@ -31,36 +66,47 @@ export function digitLayerToSvg(layer: DigitLayer, scale: number): string {
     layer.segmentStyle,
   )
   const { cells, totalWidth } = layoutText(
-    layer.text,
+    // 时钟模式在导出瞬间取当前时间快照
+    digitDisplayText(layer),
     layer.digitHeight,
     layer.aspect,
     layer.thicknessRatio,
     layer.gapRatio,
   )
-  const localW = Math.max(totalWidth, layer.digitHeight * layer.aspect)
+  const padX = Math.max(0, layer.paddingX ?? 0)
+  const padY = Math.max(0, layer.paddingY ?? 0)
+  const contentW = Math.max(totalWidth, layer.digitHeight * layer.aspect)
+  const localW = contentW + padX * 2
+  const localH = layer.digitHeight + padY * 2
   const m = layerToScene({
     x: layer.x,
     y: layer.y,
     width: localW,
-    height: layer.digitHeight,
+    height: localH,
     skewX: layer.skewX,
     skewY: layer.skewY,
   })
 
   const filterId = `glow-${layer.id}`
   const glowStd = Math.max(0.0001, layer.glow * layer.digitHeight * 0.18)
+  const glowPad = digitGlowPadding(layer)
+  // 滤镜只产出辉光层，源图形单独绘制在最上层：
+  // WebKit 的 SVG filter 在小字号下会漏绘部分段位，分离后源图形永远完整。
   const filterDef =
     layer.glow > 0
-      ? `<filter id="${filterId}" x="-80%" y="-80%" width="260%" height="260%">` +
-        `<feGaussianBlur stdDeviation="${round(glowStd)}" result="blur"/>` +
-        `<feFlood flood-color="${esc(layer.glowColor)}" flood-opacity="${Math.min(1, layer.glow)}"/>` +
-        `<feComposite in2="blur" operator="in" result="gc"/>` +
-        `<feMerge><feMergeNode in="gc"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`
+      ? `<filter id="${filterId}" filterUnits="userSpaceOnUse" x="${round(-glowPad)}" y="${round(-glowPad)}" width="${round(localW + glowPad * 2)}" height="${round(localH + glowPad * 2)}">` +
+        `<feGaussianBlur in="SourceGraphic" stdDeviation="${round(glowStd)}" result="blur"/>` +
+        `<feFlood flood-color="${esc(layer.glowColor)}" flood-opacity="${Math.min(1, layer.glow)}" result="flood"/>` +
+        `<feComposite in="flood" in2="blur" operator="in" result="gc"/></filter>`
       : ''
 
   let content = ''
   for (const cell of cells) {
     const tx = round(cell.offsetX)
+    if (cell.isColon) {
+      content += `<g transform="translate(${tx} 0)"><path d="${geo.colonPath}" fill="${esc(layer.color)}"/></g>`
+      continue
+    }
     if (cell.isDecimal) {
       content += `<g transform="translate(${tx} 0)"><path d="${geo.decimalPath}" fill="${esc(layer.color)}"/></g>`
       continue
@@ -75,12 +121,18 @@ export function digitLayerToSvg(layer: DigitLayer, scale: number): string {
     content += g
   }
 
-  const filterAttr = layer.glow > 0 ? ` filter="url(#${filterId})"` : ''
+  // 只有非零边距才需要额外的内容偏移组，避免空 translate 污染导出结构
+  const shifted =
+    padX > 0 || padY > 0
+      ? `<g transform="translate(${round(padX)} ${round(padY)})">${content}</g>`
+      : content
+  const glowLayer = layer.glow > 0 ? `<g filter="url(#${filterId})">${shifted}</g>` : ''
   return (
     `<defs>${filterDef}</defs>` +
     `<g transform="scale(${scale})">` +
-    `<g transform="${matrixToSvg(m)}" opacity="${layer.opacity}"${filterAttr}>` +
-    content +
+    `<g transform="${matrixToSvg(m)}" opacity="${layer.opacity}">` +
+    glowLayer +
+    shifted +
     `</g></g>`
   )
 }
@@ -119,7 +171,7 @@ export function widgetLayerToSvg(
     .slice(0, 6)
     .map(
       (line, i) =>
-        `<text x="${round(pad)}" y="${round(pad + fs * (i + 0.8))}" font-family="monospace" font-size="${round(fs)}" fill="${esc(layer.color)}">${esc(line)}</text>`,
+        `<text x="${round(pad)}" y="${round(pad + fs * (i + 0.8))}" font-family="${PIXEL_FONT_FAMILY}" font-size="${round(fs)}" fill="${esc(layer.color)}" text-rendering="optimizeSpeed">${esc(line)}</text>`,
     )
     .join('')
 
@@ -160,7 +212,8 @@ export function sceneVectorToSvg(
     else if (layer.type === 'widget')
       body += widgetLayerToSvg(layer, scale, snapshots?.get(layer.id))
   }
-  return svgDoc(body, w, h)
+  const embedFont = scene.layers.some((l) => l.visible && l.type === 'widget')
+  return svgDoc(body, w, h, embedFont)
 }
 
 /** 单个矢量层 → 完整 SVG 文档（用于逐层栅格化，保证 z-order 正确）。 */
@@ -176,9 +229,11 @@ export function vectorLayerToSvgDoc(
     layer.type === 'digit'
       ? digitLayerToSvg(layer, scale)
       : widgetLayerToSvg(layer, scale, snapshot)
-  return svgDoc(body, w, h)
+  return svgDoc(body, w, h, layer.type === 'widget')
 }
 
-function svgDoc(body: string, w: number, h: number): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${body}</svg>`
+function svgDoc(body: string, w: number, h: number, embedPixelFont = false): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${
+    embedPixelFont && pixelFontCss ? pixelFontCss : ''
+  }${body}</svg>`
 }

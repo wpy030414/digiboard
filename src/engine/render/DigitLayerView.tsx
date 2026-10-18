@@ -7,10 +7,12 @@
  * 导出 png 时此层被栅格化合成，导出 yml 时保留矢量参数。
  */
 
-import { memo, useId } from 'react'
+import { memo, useEffect, useId, useState } from 'react'
 import type { DigitLayer } from '../types'
 import { buildDigitGeometry, layoutText, SEGMENTS } from '../digits'
 import { layerToScene, matrixToSvg } from '../transform'
+import { digitGlowPadding } from '../footprint'
+import { formatClock, normalizeClockMode } from '../clock'
 
 interface DigitLayerViewProps {
   layer: DigitLayer
@@ -24,12 +26,11 @@ export const DigitLayerView = memo(function DigitLayerView({
   scale,
   selected = false,
 }: DigitLayerViewProps) {
-  // useId 保证每个实例的 filter id 唯一，避免多数码管层发光滤镜串扰
+  // useId 保证每个实例的 filter/clip id 唯一
   const uid = useId().replace(/:/g, '')
   const glowId = `glow-${uid}`
 
   const {
-    text,
     x,
     y,
     digitHeight,
@@ -47,12 +48,38 @@ export const DigitLayerView = memo(function DigitLayerView({
     opacity,
   } = layer
 
-  const geo = buildDigitGeometry(digitHeight, aspect, thicknessRatio, segmentStyle)
-  const { cells, totalWidth } = layoutText(text, digitHeight, aspect, thicknessRatio, gapRatio)
+  // 时钟模式：本地每秒（日期模式每分）刷新一次，不写入场景状态。
+  const clockMode = normalizeClockMode(layer.clockMode)
+  const [clockNow, setClockNow] = useState(() => new Date())
+  useEffect(() => {
+    if (clockMode === 'off') return
+    setClockNow(new Date())
+    const timer = setInterval(() => setClockNow(new Date()), clockMode === 'date' ? 60_000 : 1_000)
+    return () => clearInterval(timer)
+  }, [clockMode])
+  const displayText =
+    clockMode === 'off'
+      ? layer.text
+      : formatClock(clockMode, clockNow, {
+          showSeconds: layer.clockShowSeconds ?? false,
+          hour12: layer.clockHour12 ?? false,
+        })
 
-  // 图层局部包围盒：宽 = 文本总宽，高 = 字符高。变换绕其中心。
-  const localW = Math.max(totalWidth, digitHeight * aspect)
-  const localH = digitHeight
+  const geo = buildDigitGeometry(digitHeight, aspect, thicknessRatio, segmentStyle)
+  const { cells, totalWidth } = layoutText(
+    displayText,
+    digitHeight,
+    aspect,
+    thicknessRatio,
+    gapRatio,
+  )
+
+  // 图层局部包围盒：内容宽高 + 四边内边距。变换绕其中心。
+  const padX = Math.max(0, layer.paddingX ?? 0)
+  const padY = Math.max(0, layer.paddingY ?? 0)
+  const contentW = Math.max(totalWidth, digitHeight * aspect)
+  const localW = contentW + padX * 2
+  const localH = digitHeight + padY * 2
   const m = layerToScene({
     x,
     y,
@@ -63,6 +90,45 @@ export const DigitLayerView = memo(function DigitLayerView({
   })
 
   const glowStd = Math.max(0.0001, glow * digitHeight * 0.18)
+  // 内容必须完整落在占位矩形内：发光扩散由 footprint 计入占位，
+  // 这里用同一 padding 裁切，保证任何 filter 尾部都不会漏到矩形外。
+  const clipPad = digitGlowPadding(layer)
+  const clipId = `clip-${uid}`
+  // 辉光与源图形分成两层：WebKit 的 SVG filter 在小字号下会漏绘部分段位，
+  // 但只让它负责「辉光层」，源图形始终用未过滤的一份绘制在最上层。
+  const cellsNode = (
+    <>
+      {cells.map((cell, ci) => {
+        // 冒号：上下两个点，不渲染段位
+        if (cell.isColon) {
+          return (
+            <g key={ci} transform={`translate(${round(cell.offsetX)} 0)`}>
+              <path d={geo.colonPath} fill={color} />
+            </g>
+          )
+        }
+        // 小数点：仅渲染点，不渲染段位
+        if (cell.isDecimal) {
+          return (
+            <g key={ci} transform={`translate(${round(cell.offsetX)} 0)`}>
+              <path d={geo.decimalPath} fill={color} />
+            </g>
+          )
+        }
+        return (
+          <g key={ci} transform={`translate(${round(cell.offsetX)} 0)`}>
+            {/* 暗底衬（未点亮段）*/}
+            {showOffSegments &&
+              SEGMENTS.map((id) => <path key={`off-${id}`} d={geo.paths[id]} fill={offColor} />)}
+            {/* 点亮段 */}
+            {cell.litSegments.map((id) => (
+              <path key={`on-${id}`} d={geo.paths[id]} fill={color} />
+            ))}
+          </g>
+        )
+      })}
+    </>
+  )
 
   return (
     <svg
@@ -79,47 +145,43 @@ export const DigitLayerView = memo(function DigitLayerView({
     >
       <defs>
         {glow > 0 && (
-          <filter id={glowId} x="-80%" y="-80%" width="260%" height="260%">
-            <feGaussianBlur stdDeviation={glowStd} result="blur" />
-            <feFlood floodColor={glowColor} floodOpacity={Math.min(1, glow)} />
-            <feComposite in2="blur" operator="in" result="glowColor" />
-            <feMerge>
-              <feMergeNode in="glowColor" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+          <filter
+            id={glowId}
+            filterUnits="userSpaceOnUse"
+            x={-clipPad}
+            y={-clipPad}
+            width={localW + clipPad * 2}
+            height={localH + clipPad * 2}
+          >
+            <feGaussianBlur in="SourceGraphic" stdDeviation={glowStd} result="blur" />
+            <feFlood floodColor={glowColor} floodOpacity={Math.min(1, glow)} result="flood" />
+            <feComposite in="flood" in2="blur" operator="in" result="glow" />
           </filter>
         )}
+        <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+          <rect
+            x={-clipPad}
+            y={-clipPad}
+            width={localW + clipPad * 2}
+            height={localH + clipPad * 2}
+          />
+        </clipPath>
       </defs>
       {/* 外层 scale：场景单位 → 屏幕像素；内层 m：局部 → 场景（含旋转/斜切/定位） */}
       <g transform={`scale(${scale})`}>
-        <g
-          transform={matrixToSvg(m)}
-          opacity={opacity}
-          filter={glow > 0 ? `url(#${glowId})` : undefined}
-        >
-          {cells.map((cell, ci) => {
-            // 小数点：仅渲染点，不渲染段位
-            if (cell.isDecimal) {
-              return (
-                <g key={ci} transform={`translate(${round(cell.offsetX)} 0)`}>
-                  <path d={geo.decimalPath} fill={color} />
+        <g transform={matrixToSvg(m)}>
+          {/* 裁切放在父组：WebKit 下「filter + clipPath 同一元素」会漏绘部分段位 */}
+          <g clipPath={`url(#${clipId})`}>
+            <g opacity={opacity}>
+              {glow > 0 && (
+                <g filter={`url(#${glowId})`}>
+                  <g transform={`translate(${round(padX)} ${round(padY)})`}>{cellsNode}</g>
                 </g>
-              )
-            }
-            return (
-              <g key={ci} transform={`translate(${round(cell.offsetX)} 0)`}>
-                {/* 暗底衬（未点亮段）*/}
-                {showOffSegments &&
-                  SEGMENTS.map((id) => (
-                    <path key={`off-${id}`} d={geo.paths[id]} fill={offColor} />
-                  ))}
-                {/* 点亮段 */}
-                {cell.litSegments.map((id) => (
-                  <path key={`on-${id}`} d={geo.paths[id]} fill={color} />
-                ))}
-              </g>
-            )
-          })}
+              )}
+              <g transform={`translate(${round(padX)} ${round(padY)})`}>{cellsNode}</g>
+            </g>
+          </g>
+          {/* 选中框是编辑器辅助，不属于组件内容，放在裁切组之外 */}
           {selected && (
             <rect
               x={-digitHeight * 0.05}

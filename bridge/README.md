@@ -13,7 +13,7 @@ pnpm bridge
 ```
 
 然后在副屏里添加「Claude 会话状态」小组件即可。前端默认连
-`http://localhost:4321/events`；**连不上时自动降级为内置演示数据**（纯静态部署也能看效果）。
+`http://localhost:4321/events`；**连不上时小组件右上角显示 DISCONNECT，不展示任何演示数据**。
 
 ## 数据来源
 

@@ -4,8 +4,9 @@
  * 小组件内容由「注册表」按 widgetKind 分发渲染。阶段 2 提供占位实现，
  * 阶段 5 注册真正的 Claude Code 会话状态小组件。
  *
- * 与数码管一样，小组件占据一整块矩形点阵空间（内部像素点被抠除），
- * 内容本身不受点阵网格量化，可浮点定位、超出画布。旋转已取消。
+ * 与数码管一样，小组件占据一整块矩形点阵空间（内部像素点被抠除）。
+ * 小组件强制吸附到整数网格（x/y/width/height 均为整格），内容被裁切在
+ * 矩形内，保证外部像素点不会与内容区相交。旋转/斜切均不支持。
  */
 
 import { memo } from 'react'
@@ -69,6 +70,8 @@ export const WidgetLayerView = memo(function WidgetLayerView({
         transformOrigin: '0 0',
         opacity: layer.opacity,
         pointerEvents: 'none',
+        // 内容不得溢出占位矩形（矩形必须完整包裹组件）
+        overflow: 'hidden',
         outline: selected ? '1px dashed #ffaacc' : 'none',
         // 启用容器查询单位（cqh/cqw），让小组件内容自适应任意图层尺寸与缩放
         containerType: 'size',

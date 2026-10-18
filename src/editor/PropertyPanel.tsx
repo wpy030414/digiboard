@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useSceneStore, useSelectedLayer } from '@/engine/scene-store'
+import { normalizeClockMode } from '@/engine/clock'
 import type { DigitLayer, Layer, WidgetLayer } from '@/engine/types'
 
 export function PropertyPanel() {
@@ -103,20 +104,68 @@ function DigitProps({ layer }: { layer: DigitLayer }) {
   const updateLayer = useSceneStore((s) => s.updateLayer)
   const set = <K extends keyof DigitLayer>(k: K, v: DigitLayer[K]) =>
     updateLayer<DigitLayer>(layer.id, { [k]: v } as Partial<DigitLayer>)
+  const clockMode = normalizeClockMode(layer.clockMode)
 
   return (
     <>
       <CommonProps layer={layer} />
       <Separator />
       <Section title="数码管内容">
-        <Field label="显示文本">
-          <Input
-            value={layer.text}
-            data-testid="prop-digit-text"
-            onChange={(e) => set('text', e.target.value)}
-            className="h-8 font-mono"
-          />
+        <Field label="显示模式">
+          <Select value={clockMode} onValueChange={(v) => set('clockMode', normalizeClockMode(v))}>
+            <SelectTrigger className="h-8" data-testid="prop-clock-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">手动文本</SelectItem>
+              <SelectItem value="date">日期</SelectItem>
+              <SelectItem value="time">时间</SelectItem>
+              <SelectItem value="datetime">日期 + 时间</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
+        {clockMode === 'off' ? (
+          <Field label="显示文本">
+            <Input
+              value={layer.text}
+              data-testid="prop-digit-text"
+              onChange={(e) => set('text', e.target.value)}
+              className="h-8 font-mono"
+            />
+          </Field>
+        ) : (
+          <>
+            {clockMode !== 'date' && (
+              <>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">显示秒</Label>
+                  <Switch
+                    checked={layer.clockShowSeconds ?? false}
+                    data-testid="prop-clock-seconds"
+                    onCheckedChange={(v) => set('clockShowSeconds', v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">12 小时制</Label>
+                  <Switch
+                    checked={layer.clockHour12 ?? false}
+                    data-testid="prop-clock-hour12"
+                    onCheckedChange={(v) => set('clockHour12', v)}
+                  />
+                </div>
+              </>
+            )}
+            <p className="text-xs text-muted-foreground">
+              按本机时间实时刷新；格式{' '}
+              {clockMode === 'date'
+                ? 'YYYY-MM-DD'
+                : clockMode === 'time'
+                  ? 'HH:MM[:SS]'
+                  : 'YYYY-MM-DD HH:MM[:SS]'}
+              。
+            </p>
+          </>
+        )}
         <Field label="前景色">
           <input
             type="color"
@@ -188,6 +237,29 @@ function DigitProps({ layer }: { layer: DigitLayer }) {
             onValueChange={([v]) => set('gapRatio', v ?? layer.gapRatio)}
           />
         </Field>
+        <Field label={`左右边距 ${layer.paddingX.toFixed(1)} 单位`}>
+          <Slider
+            value={[layer.paddingX]}
+            min={0}
+            max={40}
+            step={0.5}
+            data-testid="prop-digit-padding-x"
+            onValueChange={([v]) => set('paddingX', Math.max(0, v ?? layer.paddingX))}
+          />
+        </Field>
+        <Field label={`上下边距 ${layer.paddingY.toFixed(1)} 单位`}>
+          <Slider
+            value={[layer.paddingY]}
+            min={0}
+            max={40}
+            step={0.5}
+            data-testid="prop-digit-padding-y"
+            onValueChange={([v]) => set('paddingY', Math.max(0, v ?? layer.paddingY))}
+          />
+        </Field>
+        <p className="text-xs text-muted-foreground">
+          边距是数码管内容与占位矩形之间的留白（左右/上下分别设置），随斜切一起变换。
+        </p>
         <Field label="段位样式">
           <Select
             value={layer.segmentStyle}
@@ -299,7 +371,7 @@ function WidgetProps({ layer }: { layer: WidgetLayer }) {
         </Field>
         <p className="text-xs text-muted-foreground">
           连接本机 <code className="rounded bg-muted px-1">digiboard-bridge</code>{' '}
-          以读取真实会话；未连接时自动使用演示数据。
+          以读取真实会话；未连接时显示 DISCONNECT。
         </p>
         <div className="flex items-center justify-between">
           <Label className="text-xs text-muted-foreground">显示 token 用量</Label>
@@ -324,12 +396,29 @@ function WidgetProps({ layer }: { layer: WidgetLayer }) {
         </div>
       </Section>
       <Separator />
-      <Section title="定位">
+      <Section title="外观">
+        <Field label="主题颜色">
+          <input
+            type="color"
+            value={layer.color}
+            data-testid="prop-widget-color"
+            onChange={(e) => updateLayer<WidgetLayer>(layer.id, { color: e.target.value })}
+            className="h-8 w-full cursor-pointer rounded border"
+          />
+        </Field>
+        <p className="text-xs text-muted-foreground">
+          用于边框、标题与信息文字；状态灯保持语义色（忙碌绿 / 空闲黄 / 等待橙）。
+        </p>
+      </Section>
+      <Separator />
+      <Section title="尺寸与定位">
         <div className="grid grid-cols-2 gap-2">
           <Field label="X">
             <Input
               type="number"
-              value={Math.round(layer.x)}
+              step={1}
+              value={layer.x}
+              data-testid="prop-widget-x"
               onChange={(e) => updateLayer<WidgetLayer>(layer.id, { x: Number(e.target.value) })}
               className="h-8"
             />
@@ -337,7 +426,9 @@ function WidgetProps({ layer }: { layer: WidgetLayer }) {
           <Field label="Y">
             <Input
               type="number"
-              value={Math.round(layer.y)}
+              step={1}
+              value={layer.y}
+              data-testid="prop-widget-y"
               onChange={(e) => updateLayer<WidgetLayer>(layer.id, { y: Number(e.target.value) })}
               className="h-8"
             />
@@ -345,7 +436,10 @@ function WidgetProps({ layer }: { layer: WidgetLayer }) {
           <Field label="宽">
             <Input
               type="number"
-              value={Math.round(layer.width)}
+              step={1}
+              min={1}
+              value={layer.width}
+              data-testid="prop-widget-w"
               onChange={(e) =>
                 updateLayer<WidgetLayer>(layer.id, { width: Number(e.target.value) })
               }
@@ -355,7 +449,10 @@ function WidgetProps({ layer }: { layer: WidgetLayer }) {
           <Field label="高">
             <Input
               type="number"
-              value={Math.round(layer.height)}
+              step={1}
+              min={1}
+              value={layer.height}
+              data-testid="prop-widget-h"
               onChange={(e) =>
                 updateLayer<WidgetLayer>(layer.id, { height: Number(e.target.value) })
               }
@@ -363,6 +460,9 @@ function WidgetProps({ layer }: { layer: WidgetLayer }) {
             />
           </Field>
         </div>
+        <p className="text-xs text-muted-foreground">
+          宽高按整格吸附（最小 1×1）；字号随卡片高度等比缩放，整体不越出占位矩形。
+        </p>
       </Section>
     </>
   )

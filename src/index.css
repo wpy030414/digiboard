@@ -1,7 +1,44 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* 缝合像素字体（8px 等宽，简体中文子集）—— 小组件的低分屏像素字体。
+   许可证：SIL OFL 1.1，见 src/assets/fonts/OFL-fusion-pixel.txt */
+@font-face {
+  font-family: 'Fusion Pixel 8px';
+  src: url('./assets/fonts/fusion-pixel-8px-monospaced-zh_hans.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
+
+/* Claude 小组件的 CRT 扫描线叠加层：极缓慢的亮度呼吸，尊重减少动态偏好 */
+@keyframes digiboard-crt-flicker {
+  0%,
+  100% {
+    opacity: 0.94;
+  }
+  48% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.92;
+  }
+  52% {
+    opacity: 1;
+  }
+}
+
+.digiboard-crt-overlay {
+  animation: digiboard-crt-flicker 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .digiboard-crt-overlay {
+    animation: none;
+  }
+}
 
 :root {
   --radius: 0.625rem;
@@ -139,13 +176,24 @@
   }
 }
 
-/* 小组件状态灯呼吸动画（busy 会话） */
-@keyframes digiboard-pulse {
-  0%,
-  100% {
+/* 小组件状态灯：从圆心向圆边扩散的涟漪（busy / waiting） */
+@keyframes digiboard-ripple {
+  0% {
+    transform: scale(0.2);
     opacity: 1;
   }
-  50% {
-    opacity: 0.35;
+  70% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.1);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .digiboard-status-ripple {
+    animation: none !important;
+    opacity: 0.3;
   }
 }

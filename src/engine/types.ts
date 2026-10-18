@@ -4,8 +4,9 @@
  * 坐标系：以点阵尺寸 `size.w × size.h` 定义逻辑画布，单位为「点阵像素」。
  * 三类图层按 `layers` 数组顺序叠放（数组越靠后 z 越高）：
  *  - PixelLayer  像素画，锁定在整数网格上（受点阵量化）
- *  - DigitLayer  LED 数码管，浮点矢量层，可任意旋转/斜切/发光/超出画布（真突破像素限制）
- *  - WidgetLayer 信息流小组件，浮点定位，实时数据驱动
+ *  - DigitLayer  LED 数码管，浮点矢量层，可斜切/发光/超出画布（真突破像素限制）；
+ *                支持手动文本与时钟模式（日期 / 时间 / 日期时间）
+ *  - WidgetLayer 信息流小组件，强制吸附整数网格，实时数据驱动
  */
 
 export type LayerType = 'pixel' | 'digit' | 'widget'
@@ -59,12 +60,23 @@ export type SegmentStyle = 'sharp' | 'rounded'
  *
  * 但它同时占据一整块矩形点阵空间：该矩形内的像素点被整块抠除
  * （见 footprint.ts 的 computeReservedMask），而不是浮在像素点之上。
+ * 占据的矩形 = 内容（含发光扩散）的外接矩形，向外取整到格；
+ * 斜切后取完整包住它的轴对齐矩形，保证外部像素点不与内容区相交。
  * 旋转已取消——矩形必须保持可量化的形状。
  */
+/** 数码管时钟模式：off = 显示手动文本；其余按本机时间实时生成。 */
+export type ClockMode = 'off' | 'date' | 'time' | 'datetime'
+
 export interface DigitLayer extends LayerBase {
   type: 'digit'
-  /** 显示文本，支持 0-9、A-F、部分字母、`- _ . : 空格`。 */
+  /** 显示文本，支持 0-9、A-F、部分字母、`- _ . : 空格`；clockMode !== 'off' 时不生效。 */
   text: string
+  /** 时钟模式（覆盖 text）。 */
+  clockMode: ClockMode
+  /** 时钟模式是否显示秒（time / datetime 生效）。 */
+  clockShowSeconds: boolean
+  /** 时钟模式是否使用 12 小时制（time / datetime 生效）。 */
+  clockHour12: boolean
   /** 字符块左上角锚点（场景单位，浮点）。 */
   x: number
   y: number
@@ -76,6 +88,10 @@ export interface DigitLayer extends LayerBase {
   thicknessRatio: number
   /** 字符间距（相对 digitHeight 的比例）。 */
   gapRatio: number
+  /** 内容与占位矩形之间的水平内边距（左右，场景单位，≥0）。 */
+  paddingX: number
+  /** 内容与占位矩形之间的垂直内边距（上下，场景单位，≥0）。 */
+  paddingY: number
   color: string
   /** 发光强度 0..1，0 为无发光。 */
   glow: number
@@ -97,14 +113,18 @@ export interface DigitLayer extends LayerBase {
  * `config` 承载各小组件专属配置，结构由 widgetKind 决定。
  *
  * 与数码管一致：占据 width × height 的矩形点阵空间，内部像素点被抠除。
+ * 与数码管不同：小组件强制吸附到整数网格（x/y/width/height 均为整数格），
+ * `snapWidgetLayer` 在工厂、读档与 updateLayer 三个入口统一保证。
  */
 export interface WidgetLayer extends LayerBase {
   type: 'widget'
   widgetKind: WidgetKind
-  /** 左上角锚点（场景单位）。 */
+  /** 左上角锚点（整数格坐标）。 */
   x: number
   y: number
+  /** 宽（整数格，≥1）。 */
   width: number
+  /** 高（整数格，≥1）。 */
   height: number
   /** 小组件前景/强调色。 */
   color: string

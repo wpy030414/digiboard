@@ -89,6 +89,11 @@ describe('to-yaml — round-trip 无损', () => {
       segmentStyle: 'rounded' as const,
       showOffSegments: false,
       opacity: 0.6,
+      paddingX: 2.5,
+      paddingY: 3.5,
+      clockMode: 'time' as const,
+      clockShowSeconds: true,
+      clockHour12: true,
     })
     const back = sceneFromYaml(sceneToYaml(scene))
     const dg2 = back.layers[1] as DigitLayer
@@ -104,6 +109,11 @@ describe('to-yaml — round-trip 无损', () => {
     expect(dg2.segmentStyle).toBe('rounded')
     expect(dg2.showOffSegments).toBe(false)
     expect(dg2.opacity).toBe(0.6)
+    expect(dg2.paddingX).toBe(2.5)
+    expect(dg2.paddingY).toBe(3.5)
+    expect(dg2.clockMode).toBe('time')
+    expect(dg2.clockShowSeconds).toBe(true)
+    expect(dg2.clockHour12).toBe(true)
   })
 
   it('小组件配置与定位无损还原', () => {

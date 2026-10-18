@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import { ClaudeStatusWidget } from './ClaudeStatusWidget'
 import { useClaudeStatusStore } from './status-store'
-import { MOCK_SESSIONS, mockPayload } from './mock'
 import { createWidgetLayer } from '@/engine/factories'
 import type { WidgetLayer } from '@/engine/types'
 import type { ClaudeSessionStatus } from './types'
@@ -12,18 +11,47 @@ function widgetLayer(config: Record<string, unknown> = {}): WidgetLayer {
   return createWidgetLayer({ w: 80, h: 60 }, 'claude-status', { config })
 }
 
+/** 测试夹具：模拟一份 bridge 推送的真实 payload（仅存在于测试，不进入应用运行态）。 */
+const FIXTURE_SESSIONS: ClaudeSessionStatus[] = [
+  {
+    pid: 42001,
+    sessionId: 'fixture-a',
+    name: 'digiboard-04',
+    cwd: '~/Documents/Repos/digiboard',
+    status: 'busy',
+    version: '2.1.283',
+    model: 'claude-opus-4-8',
+    currentTool: 'Edit',
+    tokens: { input: 5772, output: 655, cacheRead: 26624 },
+    lastMessage: { role: 'user', text: '把点阵升级到电子副屏', at: Date.now() - 12000 },
+    updatedAt: Date.now(),
+  },
+  {
+    pid: 42002,
+    sessionId: 'fixture-b',
+    name: 'fixture-idle',
+    cwd: '~/Documents/Repos/demo',
+    status: 'idle',
+    version: '2.1.283',
+    model: 'claude-sonnet-4-6',
+    tokens: { input: 1203, output: 88 },
+    lastMessage: { role: 'assistant', text: '排练表已经排好啦～', at: Date.now() - 90000 },
+    updatedAt: Date.now(),
+  },
+]
+
 beforeEach(() => {
-  // 每个测试重置 store 到 mock 演示态
+  // 每个测试重置 store 到「已连接 bridge」态
   useClaudeStatusStore.setState({
-    sessions: MOCK_SESSIONS,
-    connection: 'mock',
+    sessions: FIXTURE_SESSIONS,
+    connection: 'live',
     bridgeUrl: 'http://localhost:4321/events',
     lastUpdate: Date.now(),
   })
 })
 
 afterEach(() => {
-  useClaudeStatusStore.setState({ connection: 'mock' })
+  useClaudeStatusStore.setState({ sessions: [], connection: 'connecting' })
 })
 
 describe('ClaudeStatusWidget — 基础渲染', () => {
@@ -32,18 +60,40 @@ describe('ClaudeStatusWidget — 基础渲染', () => {
     expect(screen.getByTestId('claude-status-widget')).toBeTruthy()
     expect(screen.getByText('CLAUDE CODE')).toBeTruthy()
     expect(screen.getByText('digiboard-04')).toBeTruthy()
-    expect(screen.getByText('momoi-85')).toBeTruthy()
+    expect(screen.getByText('fixture-idle')).toBeTruthy()
   })
 
-  it('连接态徽标显示 DEMO（mock）', () => {
+  it('断连时显示 DISCONNECT 且不渲染任何会话', () => {
+    useClaudeStatusStore.setState({ sessions: [], connection: 'error' })
     render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
-    expect(screen.getByText('DEMO')).toBeTruthy()
+    expect(screen.getByText('DISCONNECT')).toBeTruthy()
+    expect(screen.queryByText('digiboard-04')).toBeNull()
+    expect(screen.queryByText('fixture-idle')).toBeNull()
+    expect(screen.queryByText('DEMO')).toBeNull()
+  })
+
+  it('渲染 CRT 扫描线叠加层且不拦截指针', () => {
+    render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
+    const overlay = screen.getByTestId('claude-crt-overlay')
+    expect(overlay.getAttribute('aria-hidden')).toBe('true')
+    expect(overlay.className).toContain('digiboard-crt-overlay')
+    expect(overlay.style.pointerEvents).toBe('none')
+  })
+
+  it('主题色应用于卡片文字与 CRT 辉光，且不再有边框', () => {
+    const layer = widgetLayer()
+    layer.color = '#00ffcc'
+    render(<ClaudeStatusWidget layer={layer} scale={4} />)
+    const root = screen.getByTestId('claude-status-widget')
+    expect(root.style.color).toBe('rgb(0, 255, 204)')
+    expect(root.style.textShadow).toContain('#00ffcc')
+    expect(root.style.border).toBe('')
   })
 
   it('live 连接态显示 LIVE', () => {
-    useClaudeStatusStore.setState({ connection: 'live' })
     render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
     expect(screen.getByText('LIVE')).toBeTruthy()
+    expect(screen.queryByText('DISCONNECT')).toBeNull()
   })
 
   it('connecting 显示占位', () => {
@@ -77,6 +127,23 @@ describe('ClaudeStatusWidget — 基础渲染', () => {
 })
 
 describe('ClaudeStatusWidget — 状态标识', () => {
+  it('busy 状态灯渲染两圈向圆边扩散的涟漪', () => {
+    useClaudeStatusStore.setState({ sessions: [FIXTURE_SESSIONS[0]!] })
+    render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
+    const light = screen.getByTestId('claude-status-light')
+    expect(light.querySelectorAll('.digiboard-status-ripple')).toHaveLength(2)
+    // 直径 = 同行字号的 0.8em（满足 ≥66% 的要求）
+    expect(light.style.width).toBe('0.8em')
+    expect(light.style.height).toBe('0.8em')
+  })
+
+  it('idle 状态灯只保留中心光点', () => {
+    useClaudeStatusStore.setState({ sessions: [FIXTURE_SESSIONS[1]!] })
+    render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
+    const light = screen.getByTestId('claude-status-light')
+    expect(light.querySelectorAll('.digiboard-status-ripple')).toHaveLength(0)
+  })
+
   it('busy 会话显示 BUSY 标签', () => {
     render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
     expect(screen.getByText('BUSY')).toBeTruthy()
@@ -109,7 +176,7 @@ describe('ClaudeStatusWidget — 状态标识', () => {
 
   it('busy 会话显示当前工具名', () => {
     render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
-    // MOCK_SESSIONS[0] 是 busy + currentTool='Edit'
+    // FIXTURE_SESSIONS[0] 是 busy + currentTool='Edit'
     expect(screen.getByText('Edit')).toBeTruthy()
   })
 
@@ -158,7 +225,7 @@ describe('ClaudeStatusWidget — model / token / cwd / 消息', () => {
 
   it('显示 cwd（缩短）', () => {
     render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
-    // MOCK cwd '~/Documents/Repos/digiboard' 长度<=28 原样显示
+    // 夹具 cwd '~/Documents/Repos/digiboard' 长度<=28 原样显示
     expect(screen.getByText('~/Documents/Repos/digiboard')).toBeTruthy()
   })
 })
@@ -211,6 +278,7 @@ describe('ClaudeStatusWidget — store 响应性', () => {
   })
 
   it('setPayload 切换到 live 并写入会话', () => {
+    useClaudeStatusStore.setState({ sessions: [], connection: 'connecting' })
     render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
     act(() => {
       useClaudeStatusStore.getState().setPayload({
@@ -231,17 +299,15 @@ describe('ClaudeStatusWidget — store 响应性', () => {
     expect(screen.getByText('LIVE')).toBeTruthy()
     expect(screen.getByText('live-session')).toBeTruthy()
   })
-})
 
-describe('mock 数据完整性', () => {
-  it('mockPayload 含两个会话且字段完整', () => {
-    const p = mockPayload()
-    expect(p.sessions.length).toBe(2)
-    expect(p.now).toBeTypeOf('number')
-    for (const s of p.sessions) {
-      expect(s.sessionId).toBeTruthy()
-      expect(['busy', 'idle', 'waiting', 'unknown']).toContain(s.status)
-      expect(s.updatedAt).toBeTypeOf('number')
-    }
+  it('clearSessions 清空会话（断连时由 hook 调用）', () => {
+    render(<ClaudeStatusWidget layer={widgetLayer()} scale={4} />)
+    expect(screen.getByText('digiboard-04')).toBeTruthy()
+    act(() => {
+      useClaudeStatusStore.getState().setConnection('error')
+      useClaudeStatusStore.getState().clearSessions()
+    })
+    expect(screen.queryByText('digiboard-04')).toBeNull()
+    expect(screen.getByText('DISCONNECT')).toBeTruthy()
   })
 })

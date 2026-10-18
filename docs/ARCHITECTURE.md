@@ -26,16 +26,16 @@
          ▼                                            │
   bridge/server.mjs（本机 sidecar,127.0.0.1:4321）─────┘
     读 ~/.claude/sessions/*.json（判活）+ projects/*/<sid>.jsonl 尾部
-    聚合 → SSE 推送；不可达时前端降级 mock 演示数据
+    聚合 → SSE 推送；不可达时前端显示 DISCONNECT（不注入演示数据）
 ```
 
 场景坐标系：以点阵尺寸 `W×H` 为逻辑单位。三类图层按数组顺序（z 从低到高）叠放：
 
-| 图层     | 坐标             | 屏幕渲染                                                    | PNG 导出                                  | 网格量化         |
-| -------- | ---------------- | ----------------------------------------------------------- | ----------------------------------------- | ---------------- |
-| `pixel`  | 整数格点         | `<canvas>` 圆角点阵：每格一颗圆角方块（留缝），灭点 + 亮点  | 同一套 `drawPixelDots` 按输出像素密度绘制 | **是**           |
-| `digit`  | 浮点，可超出画布 | `<svg>` 铺满容器 + matrix transform + glow filter，占据矩形 | 序列化为 SVG 文档 → `Image` → drawImage   | **否（真突破）** |
-| `widget` | 浮点             | `<div>` container-query 单位，DOM 渲染，占据矩形            | `widgetLayerToSvg` 快照化为 SVG 文本卡    | 否               |
+| 图层     | 坐标               | 屏幕渲染                                                    | PNG 导出                                  | 网格量化         |
+| -------- | ------------------ | ----------------------------------------------------------- | ----------------------------------------- | ---------------- |
+| `pixel`  | 整数格点           | `<canvas>` 圆角点阵：每格一颗圆角方块（留缝），灭点 + 亮点  | 同一套 `drawPixelDots` 按输出像素密度绘制 | **是**           |
+| `digit`  | 浮点，可超出画布   | `<svg>` 铺满容器 + matrix transform + glow filter，占据矩形 | 序列化为 SVG 文档 → `Image` → drawImage   | **否（真突破）** |
+| `widget` | 整数格（吸附网格） | `<div>` container-query 单位，DOM 渲染，占据矩形            | `widgetLayerToSvg` 快照化为 SVG 文本卡    | **是**           |
 
 **拼豆模式**（编辑器工具栏开关，偏好存 localStorage `digiboard.ui.beads.v1`；开关标签随状态显示「副屏」/「拼豆」）：
 像素改画直角整格、无留缝，叠加行列序号、每格半透灰色边界线与红色标识线（5 格虚线 / 10 格实线），
@@ -53,9 +53,10 @@
 内容层（digit/widget）只能叠在基座之上，排序下界是 index 1。
 
 **屏幕是网格玩具板**：像素不是无缝方块，而是留缝的圆角点。数码管与小组件
-不是浮在像素点上，而是占据一整块矩形点阵空间——`computeReservedMask` 逐格
-判定被可见矢量层覆盖的格子，像素层在这些格子上既不画亮点也不画灭点（整块
-抠除）。命中测试、屏幕渲染与 PNG 导出共用 `footprint.ts` 的同一个矩形。
+不是浮在像素点上，而是占据一整块矩形点阵空间——`computeReservedMask` 取每个
+可见矢量层内容（数码管含发光扩散）的外接矩形，向外取整到格后整块抠除，像素层
+在这些格子上既不画亮点也不画灭点。小组件坐标强制吸附整数网格，数码管保留
+浮点定位与斜切（但占位仍是完整包住它的矩形）。命中测试、屏幕渲染与 PNG 导出共用 `footprint.ts` 的同一个矩形。
 
 ## 核心模块
 
@@ -63,7 +64,8 @@
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `engine/types.ts`                  | 场景/图层数据模型唯一权威定义（Scene、PixelLayer、DigitLayer、WidgetLayer、Tool）                                                                                              |
 | `engine/scene-store.ts`            | zustand 单例：场景 CRUD、选中态、撤销/重做栈（上限 100）、像素写入的 clone-then-mutate                                                                                         |
-| `engine/digits.ts`                 | 七段数码管：a-g 位掩码字符表、段位几何（sharp/rounded）、文本排布（含小数点）                                                                                                  |
+| `engine/digits.ts`                 | 七段数码管：a-g 位掩码字符表、段位几何（sharp/rounded）、文本排布（标点窄格：小数点单点 / 冒号双点）                                                                           |
+| `engine/clock.ts`                  | 数码管时钟模式：按本机时间生成 `YYYY-MM-DD` / `HH:MM[:SS]` / 日期时间，支持秒与 12/24 小时制                                                                                   |
 | `engine/transform.ts`              | 3×3 仿射矩阵：translate/rotate/skew/scale、layerToScene 及其逆、AABB 包围盒与命中测试                                                                                          |
 | `engine/pixels.ts`                 | 像素原语：扫描线油漆桶、Bresenham 直线、RLE 编解码                                                                                                                             |
 | `engine/dots.ts`                   | 圆角点阵几何与绘制（灭点/按调色板分桶的亮点、留缝、圆角），屏幕与 PNG 导出共用                                                                                                 |
@@ -87,7 +89,7 @@
 | `editor/*`                         | Toolbar（新建/保存/工具/尺寸/缩放/播放/侧栏）、NewSceneDialog（空白/从 YAML 载入/图片）、SaveDialog（YAML/PNG）、PropertyPanel（右上属性表单）、LayerPanel（右下「小组件」树） |
 | `pages/EditorPage.tsx`             | 画布 + 右侧共享栏（属性 60% / 小组件 40%）、自适应缩放、键盘快捷键、导出/播放编排                                                                                              |
 | `pages/PlayerPage.tsx`             | 全屏只读：URL base64-yml / 内置演示场景，F 全屏 E 返回（YAML 导入在「新建」）                                                                                                  |
-| `widgets/claude-status/*`          | 小组件注册（index.ts）、渲染器（container-query 自适应）、状态 store、SSE hook（3s 超时降级 mock）、mock 数据                                                                  |
+| `widgets/claude-status/*`          | 小组件注册（index.ts）、渲染器（container-query 自适应）、状态 store、SSE hook（3s 超时断开并清空）、断连态渲染                                                                |
 | `bridge/server.mjs`                | 本地 SSE sidecar：枚举判活会话、jsonl 尾部反向扫描、聚合推送；`/events`(SSE) `/status`(快照)                                                                                   |
 
 ## 模块关系
@@ -105,7 +107,7 @@
 2. **导出 YAML**：scene → 像素层 RLE → js-yaml dump →（可选 base64）→ 下载/URL。
 3. **导出 PNG**：背景 fillRect → 像素层 ImageData 放大 drawImage（smoothing off）→ 矢量层 SVG 字符串 → data-URL Image → drawImage，全程按 layers 原始顺序。
 4. **播放**：URL/文件 YAML → `sceneFromYaml` → PlayerPage 局部 state → SceneCanvas(mode=play)。
-5. **小组件实时数据**：bridge 轮询（1s）→ 变化时 SSE 推送 → store → widget 重渲染；bridge 不可达 → 3s 超时 → mock 心跳（3s 翻转 busy/idle 制造活动感）。
+5. **小组件实时数据**：bridge 轮询（1s）→ 变化时 SSE 推送 → store → widget 重渲染；bridge 不可达 → 3s 超时 → 清空会话、右上角显示 DISCONNECT（不注入任何演示数据）。
 
 ## 外部系统
 
@@ -115,7 +117,7 @@
 
 ## 重要技术边界
 
-- **量化 vs 矢量**：像素层永远整数格点（LED 颗粒感是特性不是缺陷）；矢量层永远浮点（突破网格是核心卖点），但以一个可量化矩形占据点阵空间——矩形必须无旋转（旋转会让「占位」失去唯一解）。两者只在导出 PNG 时于 canvas 上汇合。
+- **量化 vs 矢量**：像素层永远整数格点（LED 颗粒感是特性不是缺陷）；数码管永远浮点（突破网格是核心卖点），但以一个可量化矩形占据点阵空间——矩形必须无旋转（旋转会让「占位」失去唯一解），内容（含发光）被裁切在矩形内。小组件是信息卡片，强制吸附整数网格。两者只在导出 PNG 时于 canvas 上汇合。
 - **无网格辅助线**：屏幕由点阵本身表达格子，编辑器不再叠加网格线层。
 - **不可变约定**：历史栈与当前场景可能共享结构；任何像素写入前必须 clone（`withPixelLayer`），任何结构修改必须展开复制。违反此约定会破坏撤销/重做。
 - **dev-only 测试钩子**：`window.__digiboard` 仅在 `import.meta.env.DEV` 挂载（E2E 确定性断言用），生产构建不暴露。

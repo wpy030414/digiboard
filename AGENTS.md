@@ -4,7 +4,7 @@ DigiBoard 电子副屏：React 19.3 + Vite+ 的点阵画布应用，三层图层
 
 ## 概述
 
-- 本项目是什么：浏览器端电子副屏编辑器与播放页。场景 = 点阵尺寸 + 有序图层栈；图层分三类：`pixel`（圆角点阵玩具板，像素值是调色板索引——单层多色混搭；画笔颜色在顶部工具栏）、`digit`（矢量 LED 数码管，可斜切/发光/超出画布——「突破像素限制」是核心卖点，但以一块矩形占据点阵空间）、`widget`（信息流小组件，同样占据矩形，目前内置 Claude Code 会话状态）。
+- 本项目是什么：浏览器端电子副屏编辑器与播放页。场景 = 点阵尺寸 + 有序图层栈；图层分三类：`pixel`（圆角点阵玩具板，像素值是调色板索引——单层多色混搭；画笔颜色在顶部工具栏）、`digit`（矢量 LED 数码管，可斜切/发光/超出画布——「突破像素限制」是核心卖点，但以一块矩形占据点阵空间；支持 `:` / `-` 分隔符与时钟模式：日期、时间、日期时间，可选秒与 12/24 小时制）、`widget`（信息流小组件，同样占据矩形，目前内置 Claude Code 会话状态）。
 - 调色板上限 221 色（`engine/beads-palette.ts`，MARD 拼豆色卡）：图片生成、画笔颜色与图例色号都对齐该色卡；`setBrushColor` 会把任意选色吸附到最近色号，画笔 tooltip 显示色号而非 HEX，色卡外颜色在图例里以 `≈色号` 标注。
 - 点阵尺寸上限 200×200（`MAX_SCENE_SIZE`）：新入口一律经 `clampSceneSize`，YAML 超限直接拒绝。
 - 拼豆模式（`beads`）：`PixelCanvas` 画直角整格，`BeadsOverlay` 叠加行列序号、每格半透灰线与 5/10 格红线，格子 ≥8px 时每个色块中央标注取反色色号；`editor/BeadsLegend` 按拼豆色号（MARD 221 色、自然排序）显示颜色计数并支持单色高亮（其余颜色降为 30% 透明度）；开关偏好存 localStorage（`digiboard.ui.beads.v1`），开启时 PNG 导出方形整格，并由 `export/beads-export.ts` 附加四边行列序号、署名行与图例；导出密度与屏幕倍率解耦（`beadsExportUnit`，上限 48px/格），`beadsAnnotations: false` 可导出纯图案。
@@ -28,6 +28,7 @@ DigiBoard 电子副屏：React 19.3 + Vite+ 的点阵画布应用，三层图层
   - 工具链一切走 `vp`（Vite+）：`pnpm check`（fmt+lint+type）必须在提交前通过；测试 `pnpm test`（vitest）与 `pnpm test:e2e`（Playwright，dev server 用 5273 端口，**不要占用/杀死 5173/5174**——那是其它项目的进程）。
   - 像素写入必须走 store 的 clone-then-mutate 约定（见 `scene-store.ts` 的 `withPixelLayer`），历史栈依赖不可变性。
   - 点阵几何（圆角/留缝/灭点）与占位抠除必须共用 `engine/dots.ts` 与 `engine/footprint.ts`——屏幕渲染与 PNG 导出不允许出现第二套几何。
+  - 矢量层占位 = 内容（数码管含发光 3.5σ 扩散）外接矩形向外取整到格：无论怎么摆放/斜切，抠除区都是完整矩形，外部像素点不得与内容区相交。小组件 x/y/width/height 强制整数网格（`snapWidgetLayer` 在工厂、读档、`updateLayer` 三个入口统一生效）。
   - 编辑自动保存走 `engine/persistence.ts`（防抖 400ms → localStorage `digiboard.scene.v1`）；只持久化 scene，不持久化历史栈/选中态。
   - 带历史的离散操作用 `pushHistory`；连续操作（画笔拖拽）由调用方在笔画起点 `commitHistory()` 一次。
   - YAML 是场景的交换格式：改动 `types.ts` 中图层字段时必须同步 `to-yaml.ts` 的序列化与 round-trip 测试。
@@ -39,7 +40,8 @@ DigiBoard 电子副屏：React 19.3 + Vite+ 的点阵画布应用，三层图层
 
 - `src/engine/types.ts` — 场景与三类图层的数据模型（唯一权威）
 - `src/engine/scene-store.ts` — zustand 场景状态 + 撤销/重做
-- `src/engine/digits.ts` — 七段数码管几何与字符编码（a-g 位掩码）
+- `src/engine/digits.ts` — 七段数码管几何与字符编码（a-g 位掩码、标点格与冒号双点）
+- `src/engine/clock.ts` — 数码管时钟模式：日期/时间/日期时间格式化（秒、12/24 小时制）
 - `src/engine/transform.ts` — 3×3 仿射矩阵（矢量层定位/旋转/斜切/命中测试）
 - `src/engine/pixels.ts` — 像素操作（油漆桶/Bresenham/RLE）
 - `src/engine/dots.ts` — 圆角点阵几何与绘制（灭点/亮点，屏显与导出共用）
@@ -51,7 +53,7 @@ DigiBoard 电子副屏：React 19.3 + Vite+ 的点阵画布应用，三层图层
 - `src/engine/export/` — to-yaml（场景⇄YAML）、to-png（三层合成栅格化）、vector-to-svg（矢量层序列化）
 - `src/editor/` — Toolbar / SaveDialog / BeadsLegend / NewSceneDialog / PropertyPanel（右上属性）/ LayerPanel（右下「小组件」）
 - `src/pages/` — EditorPage（编辑器）、PlayerPage（播放页，URL ?scene= base64-yml）
-- `src/widgets/claude-status/` — Claude 会话小组件（SSE 订阅 + mock 降级）
+- `src/widgets/claude-status/` — Claude 会话小组件（SSE 订阅；断连显示 DISCONNECT，不注入演示数据；自托管 Fusion Pixel 8px 像素字体）
 - `src/components/ui/` — shadcn/ui 组件（`cn` 统一走 `@/lib/utils`）
 - `bridge/` — 本地 SSE 桥接脚本与文档（`node bridge/server.mjs`）
 - `e2e/` — Playwright 端到端测试（helpers 经 dev 态 `window.__digiboard` 断言）

@@ -19,6 +19,7 @@ import type {
   WidgetKind,
 } from './types'
 import { DEFAULT_PIXEL_COLOR } from './types'
+import { snapWidgetLayer } from './footprint'
 import {
   cloneLayer,
   cloneScene,
@@ -215,7 +216,12 @@ export const useSceneStore = create<SceneState>((set, get) => {
 
     updateLayer: <T extends Layer>(id: string, patch: Partial<T>) =>
       set((s) => {
-        const layers = s.scene.layers.map((l) => (l.id === id ? ({ ...l, ...patch } as Layer) : l))
+        const layers = s.scene.layers.map((l) => {
+          if (l.id !== id) return l
+          const merged = { ...l, ...patch } as Layer
+          // 小组件强制吸附网格：拖拽、属性面板、程序化更新共用这一道闸
+          return merged.type === 'widget' ? snapWidgetLayer(merged) : merged
+        })
         return { scene: { ...s.scene, layers } }
       }),
 

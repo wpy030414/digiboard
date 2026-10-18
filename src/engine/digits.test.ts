@@ -35,9 +35,14 @@ describe('digits — 段位编码', () => {
     expect(charToSegments('a')).toEqual(charToSegments('A'))
   })
 
-  it('小数点与冒号被识别', () => {
+  it('小数点、冒号与减号被识别', () => {
     expect(isSupportedChar('.')).toBe(true)
     expect(isSupportedChar(':')).toBe(true)
+    expect(isSupportedChar('-')).toBe(true)
+  })
+
+  it('减号点亮中间横段 g', () => {
+    expect(charToSegments('-')).toEqual(['g'])
   })
 
   it('不支持的字符返回空段位', () => {
@@ -68,6 +73,13 @@ describe('digits — 几何生成', () => {
     expect(geo.paths['a']).not.toContain('Q')
   })
 
+  it('冒号由上下两个点组成，标点格宽度固定', () => {
+    const geo = buildDigitGeometry(20, 0.6, 0.16)
+    expect(geo.punctW).toBeCloseTo(geo.t * 1.4)
+    expect(geo.colonPath.match(/M /g)?.length).toBe(2)
+    expect(geo.decimalPath.match(/M /g)?.length).toBe(1)
+  })
+
   it('零厚度被夹紧为最小值，不产生 NaN', () => {
     const geo = buildDigitGeometry(20, 0.6, 0)
     expect(geo.t).toBeGreaterThan(0)
@@ -92,6 +104,15 @@ describe('digits — 文本排布', () => {
     const dotCell = withDot.cells.find((c) => c.isDecimal)
     expect(dotCell).toBeDefined()
     expect(dotCell!.litSegments).toEqual([])
+  })
+
+  it('冒号使用窄标点格且不点亮段位', () => {
+    const { cells } = layoutText('12:34', 20, 0.6, 0.16, 0.12)
+    const colon = cells.find((c) => c.isColon)!
+    expect(colon).toBeDefined()
+    expect(colon.litSegments).toEqual([])
+    // 冒号格宽度小于一个完整字符宽
+    expect(cells[3]!.offsetX - cells[2]!.offsetX).toBeLessThan(20 * 0.6)
   })
 
   it('偏移量随字符递增', () => {

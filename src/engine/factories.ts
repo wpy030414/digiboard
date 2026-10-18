@@ -12,6 +12,8 @@ import type {
   WidgetKind,
 } from './types'
 import { DEFAULT_OFF_DOT_COLOR, DEFAULT_PIXEL_COLOR, MAX_SCENE_SIZE, SCENE_VERSION } from './types'
+import { snapWidgetLayer } from './footprint'
+import { normalizeClockMode } from './clock'
 
 let idCounter = 0
 /** 生成图层 id。带时间前缀保证跨会话唯一、可读。 */
@@ -57,9 +59,8 @@ export function createDigitLayer(
   overrides: Partial<DigitLayer> = {},
 ): DigitLayer {
   const size = clampSceneSize(rawSize)
-  // 默认数码管「8888」要完整落在板面内：宽度 ≈ 1.248 × digitHeight，
-  // 同时受画布高宽约束，避免首次打开就溢出板外
-  const digitHeight = Math.max(8, Math.round(Math.min(size.w * 0.3, size.h * 0.6)))
+  // 默认字符高度固定 4 个场景单位（1 单位 = 1 格），与画布尺寸解耦
+  const digitHeight = 4
   return {
     id: nextId('dg'),
     name: '数码管',
@@ -68,12 +69,17 @@ export function createDigitLayer(
     locked: false,
     opacity: 1,
     text: '8888',
+    clockMode: 'off',
+    clockShowSeconds: false,
+    clockHour12: false,
     x: size.w * 0.1,
     y: size.h * 0.25,
     digitHeight,
     aspect: 0.6,
     thicknessRatio: 0.16,
     gapRatio: 0.12,
+    paddingX: 0,
+    paddingY: 0,
     color: '#ff3b3b',
     glow: 0.55,
     glowColor: '#ff3b3b',
@@ -92,7 +98,8 @@ export function createWidgetLayer(
   overrides: Partial<WidgetLayer> = {},
 ): WidgetLayer {
   const size = clampSceneSize(rawSize)
-  return {
+  // 小组件强制吸附网格：默认值与调用方覆盖值都按整格取整
+  return snapWidgetLayer({
     id: nextId('wg'),
     name: widgetKind === 'claude-status' ? 'Claude 会话' : '小组件',
     type: 'widget',
@@ -107,7 +114,7 @@ export function createWidgetLayer(
     color: '#ffaacc',
     config: {},
     ...overrides,
-  }
+  })
 }
 
 /** 按类型分发的图层工厂。 */
@@ -140,6 +147,13 @@ export function createBlankScene(rawSize: SceneSize = { w: 40, h: 30 }): Scene {
   }
 }
 
+/** 读取数码管边距；兼容早期单值 `padding`（同时作为水平/垂直边距）。 */
+function normalizePadding(layer: DigitLayer, key: 'paddingX' | 'paddingY'): number {
+  const legacy = (layer as DigitLayer & { padding?: number }).padding
+  const value = layer[key] ?? legacy
+  return Number.isFinite(value) ? Math.max(0, value as number) : 0
+}
+
 /**
  * 归一化场景：保证像素层是唯一基座，且永远位于图层栈最底部。
  *
@@ -150,7 +164,21 @@ export function createBlankScene(rawSize: SceneSize = { w: 40, h: 30 }): Scene {
 export function normalizeScene(scene: Scene): Scene {
   const size: SceneSize = clampSceneSize(scene.size)
   const pixelLayers = scene.layers.filter((l): l is PixelLayer => l.type === 'pixel')
-  const contentLayers = scene.layers.filter((l) => l.type !== 'pixel')
+  // 旧 YAML / 手写场景里的小组件可能带小数坐标：读档时统一吸附到整数网格
+  const contentLayers = scene.layers
+    .filter((l) => l.type !== 'pixel')
+    .map((l) => {
+      if (l.type === 'widget') return snapWidgetLayer(l)
+      // 旧 YAML 可能没有时钟字段：补齐默认值，非法模式回落到手动文本
+      return {
+        ...l,
+        clockMode: normalizeClockMode(l.clockMode),
+        clockShowSeconds: l.clockShowSeconds ?? false,
+        clockHour12: l.clockHour12 ?? false,
+        paddingX: normalizePadding(l, 'paddingX'),
+        paddingY: normalizePadding(l, 'paddingY'),
+      }
+    })
   const base = pixelLayers.length > 0 ? mergePixelBase(pixelLayers, size) : createPixelLayer(size)
   return { ...scene, size, layers: [base, ...contentLayers] }
 }

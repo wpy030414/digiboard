@@ -50,16 +50,17 @@
 - 后果：round-trip 测试（to-yaml.test.ts）锁定无损性；resize 用重采样保留重叠区（factories.ts）。
 - 何时重新审视：支持多色像素（每格 RGB）时 RLE 需扩展为 run+color 对。
 
-## ADR-005：Claude 会话状态经本地 SSE bridge，前端 mock 降级
+## ADR-005：Claude 会话状态经本地 SSE bridge，断连显示 DISCONNECT
 
 - 日期：2026-10-02
 - 状态：已采纳
 - 背景：小组件要显示本机 Claude Code 会话状态，但副屏是 GitHub Pages 纯静态部署，浏览器沙箱读不到 `~/.claude`。用户选定「本地脚本 SSE 通讯」。
 - 考虑过的方案：本地 HTTP 轮询；SSE；WebSocket；手动粘贴 JSON；File System Access API。
-- 决策：`bridge/server.mjs`（node 原生 http，零依赖）轮询 `~/.claude/sessions/*.json`（1s）+ jsonl 尾部反向扫描（256KB），变化时经 SSE 推送；前端 `EventSource` 订阅，3s 超时或 onerror 降级内置 mock（3s 心跳翻转 busy/idle 制造活动感）。
-- 为什么选这个：SSE 是单向推送的天然匹配（服务器→浏览器），比 WebSocket 简单且自动重连；node 原生实现零安装成本（`pnpm bridge` 即跑）；mock 降级保证静态部署不空白——小组件永远有内容。
+- 决策：`bridge/server.mjs`（node 原生 http，零依赖）轮询 `~/.claude/sessions/*.json`（1s）+ jsonl 尾部反向扫描（256KB），变化时经 SSE 推送；前端 `EventSource` 订阅，3s 超时或 onerror 断开并清空会话（右上角显示 DISCONNECT）。
+- 为什么选这个：SSE 是单向推送的天然匹配（服务器→浏览器），比 WebSocket 简单且自动重连；node 原生实现零安装成本（`pnpm bridge` 即跑）。
 - 为什么不选其他：轮询浪费请求且延迟高；WebSocket 双向能力用不上；手动粘贴不「实时」；File System Access API 要用户手势授权且 Safari 不支持。
 - 后果：bridge 必须严守安全边界——只监听 127.0.0.1、绝不读 `.key` 令牌文件、`process.kill(pid,0)` 判活跳过异常退出残留、CORS 默认只放行本机（`DIGIBOARD_ORIGIN` 可收紧）。sessions/*.json 的 `status` 实际有三态 busy/idle/**waiting**（+waitingFor 字符串，如 "dialog open"），前端 schema 已对齐并原样透传。
+- 修订（2026-10-18）：用户要求「DEMO 不许加数据，连不上右上角就显示 DISCONNECT」。前端不再内置 mock 数据与心跳，断连时清空会话；`ConnectionStatus` 收敛为 connecting/live/error。
 - 何时重新审视：Claude Code 官方提供浏览器可达的状态 API 时（届时 bridge 可退役）。
 
 ## ADR-006：历史 commit 重写用 git-filter-repo，作者时间保留，不推送
@@ -118,8 +119,9 @@
 - 考虑过的方案：保持纯浮层覆盖；按轴对齐 AABB 抠除；按变换后矩形逐格判定（格心检测）；把图层矩形吸附到整数格。
 - 决策：新增 `engine/footprint.ts`：`layerFootprint` 给出矢量层矩形（数码管 = 文本排布宽 × digitHeight，小组件 = width × height），`computeReservedMask` 以格心反变换判定被占据的格子；`SceneCanvas` 把掩码传给像素层，`to-png` 用同一掩码。`DigitLayer/WidgetLayer` 删除 `rotation` 字段与属性面板滑块，`transform.ts` 的 `rotation` 改为可选（保留通用矩阵能力）。斜切保留（默认数码管的 -6° 斜体），掩码按斜切后的平行四边形逐格判定。
 - 为什么选这个：格心判定在无旋转时自然得到整数格矩形，斜切时边缘呈阶梯状，与实体玩具板「抠掉一颗颗棋子」的观感一致；同一份矩形同时服务命中测试、屏幕渲染与导出，避免三份几何漂移。
-- 为什么不选其他：AABB 在斜切/旋转时会多抠一大片；吸附整数格与「浮点自由定位」冲突。
-- 后果：旧 YAML 中的 `rotation` 会被静默忽略；默认数码管尺寸改为按画布宽高约束（`min(w*0.3, h*0.6)`），保证首次打开不溢出板外。修复了 SVG 根节点 0×0 导致 Chromium 不绘制数码管的既有缺陷（改为铺满容器 + `overflow: visible`）。
+- 为什么不选其他（2026-10-18 修订后已被用户要求取代）：AABB 在斜切/旋转时会多抠一大片；吸附整数格与「浮点自由定位」冲突。
+- 后果：旧 YAML 中的 `rotation` 会被静默忽略；默认数码管字符高度固定 4 场景单位（2026-10-18 修订，不再随画布尺寸变化）。修复了 SVG 根节点 0×0 导致 Chromium 不绘制数码管的既有缺陷（改为铺满容器 + `overflow: visible`）。
+- 修订（2026-10-18）：用户进一步要求 ① digit/widget 必须占据完整矩形，任何摆放/斜切下外部像素点都不得与内容区相交；② 小组件强制吸附整数网格；③ 数码管默认字符高度固定 4 单位。占位改为「内容外接矩形（数码管含发光 3.5σ 扩散）向外取整到格」的 AABB 抠除，SVG 用同一 padding 裁切内容；`snapWidgetLayer` 在工厂、`normalizeScene` 与 `updateLayer` 三处统一吸附。原「格心判定」与「小组件浮点自由定位」被取代。数码管新增 `paddingX` / `paddingY`（内容与占位矩形的左右/上下留白），计入 footprint 并在屏幕/导出中统一内缩内容。
 - 何时重新审视：若未来允许旋转，需要引入「旋转矩形栅格化」的明确规则（覆盖率阈值或 AABB）。
 
 ## ADR-011：编辑防抖持久化到 localStorage
@@ -307,3 +309,36 @@
   - 学习式像素化（Make Your Own Sprites）：许可证与 ONNX 导出都不适合随站点分发。
 - 后果：首次勾选会额外下载约 17MB（4.4MB 模型 + 13MB WASM），之后走 HTTP 缓存；`public/models` 增加 4.4MB 仓库体积；E2E 用「白底红圆」合成图覆盖开关与灭点语义。
 - 何时重新审视：若启用 WebGPU 后端、换用更小的通用抠图模型，或需要按主体自动分配网格密度（而非整块裁切）。
+
+## ADR-024：数码管时钟模式在渲染时生成，不写入场景状态
+
+- 日期：2026-10-18
+- 状态：已采纳
+- 背景：用户要求数码管支持 `:` 与 `-`，并提供时钟模式（日期、时间、日期时间；时间可选秒与 12/24 小时制）。
+- 考虑过的方案：每秒把格式化文本写回 `DigitLayer.text`；渲染时按当前时间生成；引入全局时钟 store。
+- 决策：新增 `engine/clock.ts`（`formatClock` / `digitDisplayText`）。时钟字段持久化在 `DigitLayer`（`clockMode` / `clockShowSeconds` / `clockHour12`），但显示文本不落盘：渲染、`layerFootprint` 占位与 PNG 导出统一调用 `digitDisplayText`；`DigitLayerView` 时钟态每秒（日期模式每分）本地刷新。格式定长补零，保证占位矩形宽度不随秒数跳动。冒号为上下双点的窄标点格，减号复用中间横段 g。
+- 为什么选这个：避免每秒修改场景触发 localStorage 防抖写入与撤销栈污染；渲染/占位/导出共用同一格式化函数，不会出现三份时间文本漂移。
+- 后果：PNG 导出是当前时刻的快照；12 小时制不显示 AM/PM 标记（避免增加宽度与字符依赖）；时钟模式下手动 `text` 保留在 YAML 中但不生效，切回手动模式可继续编辑。
+- 何时重新审视：若需要 AM/PM 指示、世界时区或倒计时/秒表模式，可扩展 `ClockMode` 与格式化器。
+
+## ADR-025：Claude 小组件使用自托管 8px 像素字体
+
+- 日期：2026-10-18
+- 状态：已采纳
+- 背景：用户要求 Claude 会话小组件「采用像素字体，模拟低分屏幕」。
+- 考虑过的方案：Google Fonts 像素字体（Latin only）；CSS 低分辨率缩放模拟；自托管 CJK 像素字体。
+- 决策：自托管「缝合像素字体 Fusion Pixel Font」8px 等宽简体中文版（woff2 约 360KB，SIL OFL 1.1），在 `index.css` 以 `@font-face` 注册为 `Fusion Pixel 8px`；小组件纯黑底 + `-webkit-font-smoothing: none` + `font-synthesis: none`。PNG 导出的 SVG 快照通过 `?url` 引用同一字体、导出时按需 fetch 为 data URI 内嵌，避免把字体再打进主 bundle。
+- 为什么选这个：中文覆盖完整（会话名/最近消息常含中文），体积可控且无运行时外网依赖；屏幕与导出共用同一份文件，浏览器缓存命中。
+- 后果：主 bundle 不因字体变大（CSS 资源单独加载 ~360KB）；字体许可证随仓库分发；极端情况下字体抓取失败时导出回退 monospace。
+- 修订（2026-10-18）：用户要求「CRT 味」。小组件增加绝对定位的 CRT 叠层（较强扫描线 + 暗角 + 顶部反光 + 缓慢亮度呼吸）与磷光辉光/轻微 RGB 色差文字阴影；叠层 `pointer-events: none` 且完全位于占位矩形内，`prefers-reduced-motion` 下关闭动画。按用户反馈撤掉卡片描边，状态灯改为圆心光点 + 持续向圆边扩散的双涟漪。主题色与尺寸通过属性面板「外观」「尺寸与定位」调节。
+- 何时重新审视：若引入更多小组件/字号档位，可考虑按字号子集化字体或改用位图字库。
+
+## ADR-026：数码管辉光层与源图形分离，规避 WebKit 小字号漏绘
+
+- 日期：2026-10-18
+- 状态：已采纳
+- 背景：用户反馈「数码管字符高度小于 4 时，部分管显示不出来」。复现确认：WebKit（Safari）在 `glow > 0` 且字符高度较小时，带 SVG filter 的分组会偶尔漏绘右侧/底部段位；Chromium 正常，去掉 filter 后 WebKit 也正常。
+- 决策：渲染与 PNG 导出都把发光拆成两层——滤镜只输出辉光（`feGaussianBlur` → `feFlood` → `feComposite`，不再 `feMerge` SourceGraphic），未过滤的源图形再绘制一层叠在上面。屏幕与导出共用同一策略。
+- 为什么选这个：源图形不经过滤镜缓存，任何浏览器都不会因滤镜失效而丢失段位；辉光即使部分缺失也只是柔光层，不影响可读性。
+- 后果：`glow > 0` 时 SVG 中段位路径会绘制两份（性能可忽略）；单元测试新增「辉光滤镜不含 feMerge、源图形单独绘制」的结构断言。
+- 何时重新审视：WebKit 修复该滤镜 bug 后可合并回单层 `feMerge`；或改用 canvas 阴影实现发光。

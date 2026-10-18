@@ -70,8 +70,11 @@ export const CHAR_SEGMENTS: Record<string, number> = {
   ' ': 0,
 }
 
-/** 小数点字符（单独渲染，不占段位）。 */
-export const DECIMAL_POINT_CHARS = new Set(['.', ':'])
+/** 小数点字符（单独渲染一个点，不占段位）。 */
+export const DECIMAL_POINT_CHARS = new Set(['.'])
+
+/** 冒号字符（单独渲染上下两个点，不占段位）。 */
+export const COLON_CHARS = new Set([':'])
 
 /** 归一化字符用于查表：优先精确匹配，其次尝试大写。 */
 function lookupChar(ch: string): number | undefined {
@@ -83,7 +86,7 @@ function lookupChar(ch: string): number | undefined {
 
 /** 该字符是否被数码管支持（可显示）。 */
 export function isSupportedChar(ch: string): boolean {
-  return DECIMAL_POINT_CHARS.has(ch) || lookupChar(ch) !== undefined
+  return DECIMAL_POINT_CHARS.has(ch) || COLON_CHARS.has(ch) || lookupChar(ch) !== undefined
 }
 
 /** 取字符点亮的段位 id 列表；不支持的字符返回空。 */
@@ -171,8 +174,12 @@ export interface DigitGeometry {
   t: number
   /** 每个段位的 SVG path（尖角或圆角）。 */
   paths: Record<SegmentId, string>
-  /** 小数点 path（字符右下角）。 */
+  /** 小数点 path（标点格内居中偏下）。 */
   decimalPath: string
+  /** 冒号 path（标点格内上下两个点）。 */
+  colonPath: string
+  /** 标点格宽度（小数点 / 冒号共用）。 */
+  punctW: number
 }
 
 /**
@@ -217,29 +224,37 @@ export function buildDigitGeometry(
     paths[id] = style === 'rounded' ? roundedPolygonPath(raw[id], r) : polygonPath(raw[id])
   }
 
-  // 小数点：字符右下角一个小方块
-  const dpSize = t * 1.1
-  const dpX = w + t * 0.15
-  const dpY = h - dpSize
-  const decimalPath =
+  // 标点格：小数点与冒号共用同一窄格，点块在格内水平居中
+  const punctW = t * 1.4
+  const dotSize = Math.max(t * 0.9, 0.001)
+  const dotX = (punctW - dotSize) / 2
+  const dotPath = (x: number, y: number): string =>
     style === 'rounded'
       ? roundedPolygonPath(
           [
-            { x: dpX, y: dpY },
-            { x: dpX + dpSize, y: dpY },
-            { x: dpX + dpSize, y: dpY + dpSize },
-            { x: dpX, y: dpY + dpSize },
+            { x, y },
+            { x: x + dotSize, y },
+            { x: x + dotSize, y: y + dotSize },
+            { x, y: y + dotSize },
           ],
-          dpSize * 0.3,
+          dotSize * 0.3,
         )
       : polygonPath([
-          { x: dpX, y: dpY },
-          { x: dpX + dpSize, y: dpY },
-          { x: dpX + dpSize, y: dpY + dpSize },
-          { x: dpX, y: dpY + dpSize },
+          { x, y },
+          { x: x + dotSize, y },
+          { x: x + dotSize, y: y + dotSize },
+          { x, y: y + dotSize },
         ])
 
-  return { w, h, t, paths, decimalPath }
+  // 小数点：标点格底部的小方块
+  const decimalPath = dotPath(dotX, h - dotSize - t * 0.15)
+  // 冒号：标点格上、下各一个点（时钟常用的双点样式）
+  const colonPath = `${dotPath(dotX, h * 0.3 - dotSize / 2)} ${dotPath(
+    dotX,
+    h * 0.7 - dotSize / 2,
+  )}`
+
+  return { w, h, t, paths, decimalPath, colonPath, punctW }
 }
 
 /** 单个字符渲染单元：字符 + 其在文本中的横向偏移 + 是否小数点。 */
@@ -247,14 +262,16 @@ export interface CharCell {
   ch: string
   /** 该字符块左上角相对整个文本块左上角的 x 偏移。 */
   offsetX: number
-  /** 是否为纯小数点字符（不渲染段位，只渲染点）。 */
+  /** 是否为纯小数点字符（不渲染段位，只渲染一个点）。 */
   isDecimal: boolean
+  /** 是否为冒号字符（不渲染段位，只渲染上下两个点）。 */
+  isColon: boolean
   litSegments: SegmentId[]
 }
 
 /**
  * 排布一段文本：计算每个字符的横向偏移与点亮段位。
- * 小数点字符宽度更窄（仅占一个点宽）。
+ * 小数点与冒号共用窄标点格（仅占一个点宽）。
  *
  * @returns cells 与整体宽度 totalWidth
  */
@@ -268,19 +285,22 @@ export function layoutText(
   const geo = buildDigitGeometry(height, aspect, thicknessRatio)
   const charW = geo.w
   const gap = height * gapRatio
-  const decimalW = geo.t * 1.4
+  const punctW = geo.punctW
 
   const cells: CharCell[] = []
   let cursorX = 0
   for (const ch of text) {
     const isDecimal = DECIMAL_POINT_CHARS.has(ch)
+    const isColon = COLON_CHARS.has(ch)
+    const isPunct = isDecimal || isColon
     cells.push({
       ch,
       offsetX: cursorX,
       isDecimal,
-      litSegments: isDecimal ? [] : charToSegments(ch),
+      isColon,
+      litSegments: isPunct ? [] : charToSegments(ch),
     })
-    cursorX += isDecimal ? decimalW + gap : charW + gap
+    cursorX += isPunct ? punctW + gap : charW + gap
   }
   const totalWidth = Math.max(0, cursorX - (text.length > 0 ? gap : 0))
   return { cells, totalWidth }
