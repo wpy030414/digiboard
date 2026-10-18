@@ -100,238 +100,247 @@ export function Toolbar({
   }
 
   return (
-    <header className="flex items-center gap-1.5 border-b bg-card px-2 py-1.5">
-      {/* 新建 */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            data-testid="new-scene"
-            onClick={() => setNewOpen(true)}
-          >
-            <SquareDashed />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          新建 <kbd className="ml-1 opacity-60">⌘N</kbd>
-        </TooltipContent>
-      </Tooltip>
-
-      {/* 保存：YAML / PNG 二选一 */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            data-testid="save-scene"
-            aria-label="保存"
-            onClick={() => setSaveOpen(true)}
-          >
-            <Save />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          保存 <kbd className="ml-1 opacity-60">⌘S</kbd>
-        </TooltipContent>
-      </Tooltip>
-
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
-
-      {/* 工具组 */}
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        value={tool}
-        onValueChange={(v) => v && setTool(v as Tool)}
+    <header className="flex items-start border-b bg-card">
+      {/* 左区：窄屏横向滚动。w-max 让子项保持自然宽度（不压缩），超出时整条滚动 */}
+      <div
+        className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
+        data-testid="toolbar-scroll"
       >
-        {TOOLS.map((t) => (
-          <Tooltip key={t.id}>
+        <div className="flex w-max items-center gap-1.5 px-2 py-1.5">
+          {/* 新建 */}
+          <Tooltip>
             <TooltipTrigger asChild>
-              <ToggleGroupItem
-                value={t.id}
-                data-testid={`tool-${t.id}`}
-                aria-label={t.label}
-                className="aria-checked:border-primary aria-checked:bg-primary/20 aria-checked:text-primary aria-checked:shadow-inner"
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                data-testid="new-scene"
+                onClick={() => setNewOpen(true)}
               >
-                <t.icon className="size-4" />
-              </ToggleGroupItem>
+                <SquareDashed />
+              </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {t.label} <kbd className="ml-1 opacity-60">{t.key}</kbd>
+              新建 <kbd className="ml-1 opacity-60">⌘N</kbd>
             </TooltipContent>
           </Tooltip>
-        ))}
-      </ToggleGroup>
 
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
+          {/* 保存：YAML / PNG 二选一 */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                data-testid="save-scene"
+                aria-label="保存"
+                onClick={() => setSaveOpen(true)}
+              >
+                <Save />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              保存 <kbd className="ml-1 opacity-60">⌘S</kbd>
+            </TooltipContent>
+          </Tooltip>
 
-      {/* 画笔颜色：单层多色混搭，用哪色点哪色；色号常驻显示在色块右侧 */}
-      <div className="flex items-center gap-1.5">
+          <Separator orientation="vertical" className="mx-0.5 h-6!" />
+
+          {/* 工具组 */}
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={tool}
+            onValueChange={(v) => v && setTool(v as Tool)}
+          >
+            {TOOLS.map((t) => (
+              <Tooltip key={t.id}>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value={t.id}
+                    data-testid={`tool-${t.id}`}
+                    aria-label={t.label}
+                    className="aria-checked:border-primary aria-checked:bg-primary/20 aria-checked:text-primary aria-checked:shadow-inner"
+                  >
+                    <t.icon className="size-4" />
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t.label} <kbd className="ml-1 opacity-60">{t.key}</kbd>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </ToggleGroup>
+
+          <Separator orientation="vertical" className="mx-0.5 h-6!" />
+
+          {/* 画笔颜色：单层多色混搭，用哪色点哪色；色号常驻显示在色块右侧 */}
+          <div className="flex items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <label
+                  className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md border border-input bg-background"
+                  data-testid="brush-color"
+                  aria-label="画笔颜色"
+                >
+                  <span className="size-4 rounded-sm" style={{ background: brushColor }} />
+                  <input
+                    type="color"
+                    value={brushColor}
+                    onChange={(e) => setBrushColor(e.target.value)}
+                    className="absolute inset-0 size-full cursor-pointer opacity-0"
+                  />
+                </label>
+              </TooltipTrigger>
+              <TooltipContent>画笔颜色 {brushCode}</TooltipContent>
+            </Tooltip>
+            <span
+              className="min-w-9 text-xs tabular-nums text-muted-foreground"
+              data-testid="brush-color-code"
+            >
+              {brushCode}
+            </span>
+          </div>
+
+          <Separator orientation="vertical" className="mx-0.5 h-6!" />
+
+          {/* 撤销 / 重做 */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={undo}
+                disabled={!canUndo}
+                data-testid="undo"
+                aria-label="撤销"
+              >
+                <Undo2 />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>撤销 ⌘Z</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={redo}
+                disabled={!canRedo}
+                data-testid="redo"
+                aria-label="重做"
+              >
+                <Redo2 />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>重做 ⌘⇧Z</TooltipContent>
+          </Tooltip>
+
+          <Separator orientation="vertical" className="mx-0.5 h-6!" />
+
+          {/* 点阵尺寸 */}
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">点阵</span>
+            <Input
+              type="number"
+              min={1}
+              max={MAX_SCENE_SIZE}
+              value={wDraft}
+              data-testid="size-w"
+              onChange={(e) => setWDraft(e.target.value)}
+              onBlur={applySize}
+              onKeyDown={(e) => e.key === 'Enter' && applySize()}
+              className="h-7 w-14 px-1.5 text-center"
+            />
+            <span className="text-xs text-muted-foreground">×</span>
+            <Input
+              type="number"
+              min={1}
+              max={MAX_SCENE_SIZE}
+              value={hDraft}
+              data-testid="size-h"
+              onChange={(e) => setHDraft(e.target.value)}
+              onBlur={applySize}
+              onKeyDown={(e) => e.key === 'Enter' && applySize()}
+              className="h-7 w-14 px-1.5 text-center"
+            />
+          </div>
+
+          <Separator orientation="vertical" className="mx-0.5 h-6!" />
+
+          {/* 缩放 */}
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="缩小"
+              disabled={scale <= MIN_SCALE}
+              onClick={() => setScale((s) => clampScale(s / 1.25))}
+            >
+              <ZoomOut />
+            </Button>
+            <span
+              className="w-12 text-center text-xs tabular-nums text-muted-foreground"
+              data-testid="zoom-label"
+            >
+              {Math.round(scale * 100)}%
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="放大"
+              disabled={scale >= MAX_SCALE}
+              onClick={() => setScale((s) => clampScale(s * 1.25))}
+            >
+              <ZoomIn />
+            </Button>
+          </div>
+
+          <Separator orientation="vertical" className="mx-0.5 h-6!" />
+
+          {/* 拼豆模式：直角无缝隙像素 + 行列序号 + 红色标识线 */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{beads ? '拼豆' : '副屏'}</span>
+            <Switch
+              checked={beads}
+              onCheckedChange={setBeads}
+              data-testid="beads-mode"
+              aria-label="拼豆模式"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 右区：固定动作，不随左区滚动，窄屏也始终可见 */}
+      <div className="flex shrink-0 items-center gap-1.5 border-l px-2 py-1.5">
+        {/* 播放：图标按钮（跳转播放页） */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <label
-              className="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-md border border-input bg-background"
-              data-testid="brush-color"
-              aria-label="画笔颜色"
-            >
-              <span className="size-4 rounded-sm" style={{ background: brushColor }} />
-              <input
-                type="color"
-                value={brushColor}
-                onChange={(e) => setBrushColor(e.target.value)}
-                className="absolute inset-0 size-full cursor-pointer opacity-0"
-              />
-            </label>
+            <Button size="icon-sm" data-testid="play" aria-label="播放" onClick={onPlay}>
+              <Play className="size-4" />
+            </Button>
           </TooltipTrigger>
-          <TooltipContent>画笔颜色 {brushCode}</TooltipContent>
+          <TooltipContent>播放</TooltipContent>
         </Tooltip>
-        <span
-          className="min-w-9 text-xs tabular-nums text-muted-foreground"
-          data-testid="brush-color-code"
-        >
-          {brushCode}
-        </span>
+
+        {/* 右侧栏（属性 / 小组件）显隐 */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              data-testid="toggle-sidebar"
+              aria-label={sidebarOpen ? '隐藏侧栏' : '显示侧栏'}
+              aria-pressed={sidebarOpen}
+              onClick={onToggleSidebar}
+            >
+              {sidebarOpen ? <PanelRightClose /> : <PanelRightOpen />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {sidebarOpen ? '隐藏属性与小组件侧栏' : '显示属性与小组件侧栏'}
+          </TooltipContent>
+        </Tooltip>
       </div>
-
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
-
-      {/* 撤销 / 重做 */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={undo}
-            disabled={!canUndo}
-            data-testid="undo"
-            aria-label="撤销"
-          >
-            <Undo2 />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>撤销 ⌘Z</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={redo}
-            disabled={!canRedo}
-            data-testid="redo"
-            aria-label="重做"
-          >
-            <Redo2 />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>重做 ⌘⇧Z</TooltipContent>
-      </Tooltip>
-
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
-
-      {/* 点阵尺寸 */}
-      <div className="flex items-center gap-1">
-        <span className="text-xs text-muted-foreground">点阵</span>
-        <Input
-          type="number"
-          min={1}
-          max={MAX_SCENE_SIZE}
-          value={wDraft}
-          data-testid="size-w"
-          onChange={(e) => setWDraft(e.target.value)}
-          onBlur={applySize}
-          onKeyDown={(e) => e.key === 'Enter' && applySize()}
-          className="h-7 w-14 px-1.5 text-center"
-        />
-        <span className="text-xs text-muted-foreground">×</span>
-        <Input
-          type="number"
-          min={1}
-          max={MAX_SCENE_SIZE}
-          value={hDraft}
-          data-testid="size-h"
-          onChange={(e) => setHDraft(e.target.value)}
-          onBlur={applySize}
-          onKeyDown={(e) => e.key === 'Enter' && applySize()}
-          className="h-7 w-14 px-1.5 text-center"
-        />
-      </div>
-
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
-
-      {/* 缩放 */}
-      <div className="flex items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="缩小"
-          disabled={scale <= MIN_SCALE}
-          onClick={() => setScale((s) => clampScale(s / 1.25))}
-        >
-          <ZoomOut />
-        </Button>
-        <span
-          className="w-12 text-center text-xs tabular-nums text-muted-foreground"
-          data-testid="zoom-label"
-        >
-          {Math.round(scale * 100)}%
-        </span>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="放大"
-          disabled={scale >= MAX_SCALE}
-          onClick={() => setScale((s) => clampScale(s * 1.25))}
-        >
-          <ZoomIn />
-        </Button>
-      </div>
-
-      <Separator orientation="vertical" className="mx-0.5 h-6" />
-
-      {/* 拼豆模式：直角无缝隙像素 + 行列序号 + 红色标识线 */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">{beads ? '拼豆' : '副屏'}</span>
-        <Switch
-          checked={beads}
-          onCheckedChange={setBeads}
-          data-testid="beads-mode"
-          aria-label="拼豆模式"
-        />
-      </div>
-
-      <div className="flex-1" />
-
-      {/* 播放：图标按钮（跳转播放页） */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button size="icon-sm" data-testid="play" aria-label="播放" onClick={onPlay}>
-            <Play className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>播放</TooltipContent>
-      </Tooltip>
-
-      {/* 右侧栏（属性 / 小组件）显隐 */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            data-testid="toggle-sidebar"
-            aria-label={sidebarOpen ? '隐藏侧栏' : '显示侧栏'}
-            aria-pressed={sidebarOpen}
-            onClick={onToggleSidebar}
-          >
-            {sidebarOpen ? <PanelRightClose /> : <PanelRightOpen />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {sidebarOpen ? '隐藏属性与小组件侧栏' : '显示属性与小组件侧栏'}
-        </TooltipContent>
-      </Tooltip>
 
       <SaveDialog
         open={saveOpen}
@@ -351,9 +360,10 @@ function clampInt(v: string, lo: number, hi: number): number {
 }
 
 /** 视图缩放上下限（自适应计算也封顶在这里，导出尺寸因此可控）。 */
-const MIN_SCALE = 0.5
-const MAX_SCALE = 32
+export const MIN_SCALE = 0.5
+export const MAX_SCALE = 50
 
-function clampScale(s: number): number {
+/** 把任意倍率夹到允许范围，并统一到 1% 粒度。 */
+export function clampScale(s: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(s * 100) / 100))
 }

@@ -15,13 +15,14 @@
  *   - select：命中测试顶层矢量层，拖拽移动
  */
 
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { DigitLayer, Layer, Scene, WidgetLayer } from '../types'
 import { SCREEN_BACKGROUND } from '../types'
 import { useSceneStore } from '../scene-store'
 import type { Vec2 } from '../transform'
 import { computeReservedMask, layerFootprint, pointInLayer } from '../footprint'
 import { getPixel } from '../pixels'
+import { isPinching, onPinchStart } from '../pinch'
 import { PixelCanvas } from './PixelCanvas'
 import { DigitLayerView } from './DigitLayerView'
 import { WidgetLayerView } from './WidgetLayerView'
@@ -58,12 +59,26 @@ export function SceneCanvas({
     origX: number
     origY: number
   } | null>(null)
+  /** 按在画布上的触摸指针：≥2 表示双指手势（缩放），此时不应绘制。 */
+  const touchIds = useRef(new Set<number>())
 
   // 被可见矢量层占据的格子：像素层在这些格子上整块留空
   const reservedMask = useMemo(
     () => computeReservedMask(scene.layers, scene.size.w, scene.size.h),
     [scene.layers, scene.size.w, scene.size.h],
   )
+
+  /** 中止本次触摸笔触/拖拽：双指缩放开始时撤销首指已落下的那一笔，避免误画。 */
+  const abortTouchStroke = useCallback(() => {
+    if (!drawing.current && !dragLayer.current) return
+    drawing.current = false
+    last.current = null
+    dragLayer.current = null
+    useSceneStore.getState().undo()
+  }, [])
+
+  // 双指可能一根落在画布、一根落在画布外：以全局捏合信号为准中止笔触
+  useEffect(() => onPinchStart(abortTouchStroke), [abortTouchStroke])
 
   const select = useSceneStore((s) => s.select)
   const selectedId = useSceneStore((s) => s.selectedId)
@@ -115,6 +130,16 @@ export function SceneCanvas({
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (mode !== 'edit') return
+      if (e.pointerType === 'touch') {
+        touchIds.current.add(e.pointerId)
+        // 第二根手指落下或已处于双指手势：放弃绘制
+        if (touchIds.current.size >= 2 || isPinching()) {
+          abortTouchStroke()
+          return
+        }
+      } else if (isPinching()) {
+        return
+      }
       const p = toScene(e)
 
       if (tool === 'select') {
@@ -137,12 +162,13 @@ export function SceneCanvas({
       drawAt(p, null)
       ;(e.target as Element).setPointerCapture?.(e.pointerId)
     },
-    [mode, tool, scene.layers, toScene, drawAt, select],
+    [mode, tool, scene.layers, toScene, drawAt, select, abortTouchStroke],
   )
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (mode !== 'edit') return
+      if (isPinching() || touchIds.current.size >= 2) return
       const p = toScene(e)
 
       if (dragLayer.current) {
@@ -167,6 +193,7 @@ export function SceneCanvas({
     drawing.current = false
     last.current = null
     dragLayer.current = null
+    if (e.pointerType === 'touch') touchIds.current.delete(e.pointerId)
     ;(e.target as Element).releasePointerCapture?.(e.pointerId)
   }, [])
 

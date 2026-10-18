@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Toolbar } from '@/editor/Toolbar'
+import { Toolbar, MAX_SCALE, clampScale } from '@/editor/Toolbar'
 import { LayerPanel } from '@/editor/LayerPanel'
 import { PropertyPanel } from '@/editor/PropertyPanel'
 import { SceneCanvas } from '@/engine/render/SceneCanvas'
@@ -16,6 +16,8 @@ import { downloadScenePng, downloadText } from '@/engine/export/to-png'
 import { beadsExportUnit } from '@/engine/export/beads-export'
 import { useSyncBridgeUrl } from '@/widgets/claude-status/use-sync-bridge-url'
 import { usePersistScene } from '@/editor/use-persist-scene'
+import { isMobileViewport } from '@/lib/viewport'
+import { setActiveTouches } from '@/engine/pinch'
 import { BeadsLegend } from '@/editor/BeadsLegend'
 import {
   loadBeadsMode,
@@ -28,7 +30,7 @@ import type { PixelLayer } from '@/engine/types'
 /** 让画布按容器宽度自适应缩放（fit），并可手动覆盖。 */
 function useAutoScale(containerW: number, sceneW: number) {
   const fit = sceneW > 0 && containerW > 0 ? Math.floor((containerW - 24) / sceneW) : 8
-  return Math.min(32, Math.max(1, fit))
+  return Math.min(MAX_SCALE, Math.max(1, fit))
 }
 
 export function EditorPage() {
@@ -49,8 +51,8 @@ export function EditorPage() {
   // 新建 / 保存对话框（⌘N / ⌘S 与工具栏按钮共用）
   const [newOpen, setNewOpen] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
-  // 右侧栏（属性 / 小组件）显隐，偏好持久化到 localStorage
-  const [sidebarOpen, setSidebarOpen] = useState(() => loadSidebarVisible())
+  // 右侧栏（属性 / 小组件）显隐：移动端默认收纳（窄屏优先给画布），桌面端沿用偏好
+  const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport() && loadSidebarVisible())
   // 图例筛选：只显示某个颜色（像素值 1..），null = 全部
   const [beadsFilter, setBeadsFilter] = useState<number | null>(null)
 
@@ -62,7 +64,8 @@ export function EditorPage() {
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => {
-      saveSidebarVisible(!prev)
+      // 移动端不记忆：展开只是临时查看，下次打开仍默认收纳
+      if (!isMobileViewport()) saveSidebarVisible(!prev)
       return !prev
     })
   }, [])
@@ -104,6 +107,79 @@ export function EditorPage() {
     },
     [autoFit, fittedScale],
   )
+
+  // 手势缩放基准：fit 态下屏幕显示的是 fittedScale，手势要从它接着走
+  const effectiveScaleRef = useRef(effectiveScale)
+  useEffect(() => {
+    effectiveScaleRef.current = effectiveScale
+  }, [effectiveScale])
+
+  /**
+   * 按倍率连续缩放（手势用）：直接以「当前显示倍率」为基准，
+   * 同一帧内的多个事件也能正确累积，不会从旧 state 起跳。
+   */
+  const zoomBy = useCallback((factor: number) => {
+    const next = clampScale(effectiveScaleRef.current * factor)
+    if (next === effectiveScaleRef.current) return
+    effectiveScaleRef.current = next
+    setAutoFit(false)
+    setScaleState(next)
+  }, [])
+
+  // 主内容区手势缩放：触控板捏合（浏览器上报为 ctrl+wheel）与触屏双指捏合
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+
+    const onWheel = (e: WheelEvent) => {
+      // 普通滚轮留给容器滚动，只接管捏合（macOS/Windows 均以 ctrlKey 上报）
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      // deltaMode=1 的设备按「行」上报
+      const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
+      zoomBy(Math.exp(-delta * 0.002))
+    }
+
+    let pinchDist = 0
+    const distance = (t: TouchList) =>
+      Math.hypot(t[0]!.clientX - t[1]!.clientX, t[0]!.clientY - t[1]!.clientY)
+
+    const onTouchStart = (e: TouchEvent) => {
+      setActiveTouches(e.touches.length)
+      pinchDist = e.touches.length === 2 ? distance(e.touches) : 0
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      setActiveTouches(e.touches.length)
+      if (e.touches.length !== 2) {
+        pinchDist = 0
+        return
+      }
+      // 阻止浏览器原生缩放/滚动，改由画布自身无级缩放
+      e.preventDefault()
+      const d = distance(e.touches)
+      if (pinchDist > 0 && d > 0) zoomBy(d / pinchDist)
+      pinchDist = d
+    }
+
+    const onTouchEnd = (e: TouchEvent) => {
+      setActiveTouches(e.touches.length)
+      pinchDist = 0
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [zoomBy])
 
   // 键盘快捷键
   useEffect(() => {
@@ -190,6 +266,7 @@ export function EditorPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <main
             ref={viewportRef}
+            data-testid="canvas-viewport"
             className="relative flex min-w-0 flex-1 overflow-auto bg-muted/40 p-3"
           >
             {/* m-auto 而不是 items/justify-center：内容超出视口时居中会把上/左侧

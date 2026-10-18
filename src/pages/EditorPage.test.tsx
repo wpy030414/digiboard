@@ -12,6 +12,7 @@ import { EditorPage } from './EditorPage'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useSceneStore } from '@/engine/scene-store'
 import { createDefaultScene } from '@/engine/factories'
+import { setActiveTouches } from '@/engine/pinch'
 
 // EditorPage 用到 ResizeObserver（jsdom 无实现），mock 之
 beforeEach(() => {
@@ -35,6 +36,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  setActiveTouches(0)
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -201,5 +203,101 @@ describe('EditorPage — 导出', () => {
     // 用 spy 验证跳转：MemoryRouter 下点播放应改 location，这里验证无异常抛出且 URL 携带 scene
     renderEditor()
     expect(() => fireEvent.click(screen.getByTestId('play'))).not.toThrow()
+  })
+})
+
+describe('EditorPage — 移动端侧栏默认收纳', () => {
+  it('窄屏默认不渲染侧栏，点击工具栏按钮可临时展开', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(max-width: 767px)',
+      media: query,
+    }))
+    renderEditor()
+    expect(screen.queryByTestId('sidebar')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('toggle-sidebar'))
+    expect(screen.getByTestId('sidebar')).toBeTruthy()
+  })
+
+  it('桌面端默认展开侧栏', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: false, media: query }))
+    renderEditor()
+    expect(screen.getByTestId('sidebar')).toBeTruthy()
+  })
+})
+
+describe('EditorPage — 主内容区手势缩放', () => {
+  const zoomPercent = () =>
+    Number((screen.getByTestId('zoom-label').textContent ?? '').replace('%', ''))
+
+  it('触控板捏合（ctrl+wheel）连续缩放，普通滚轮不缩放', () => {
+    renderEditor()
+    const viewport = screen.getByTestId('canvas-viewport')
+    const fireWheel = (deltaY: number, ctrlKey: boolean) => {
+      const ev = new WheelEvent('wheel', { deltaY, ctrlKey, bubbles: true, cancelable: true })
+      act(() => {
+        viewport.dispatchEvent(ev)
+      })
+      return ev
+    }
+
+    // jsdom 下容器宽度为 0，自适应缩放走兜底值 800%
+    expect(zoomPercent()).toBe(800)
+
+    expect(fireWheel(-100, true).defaultPrevented).toBe(true)
+    const afterOne = zoomPercent()
+    expect(afterOne).toBeGreaterThan(800)
+
+    // 连续事件按当前显示倍率累积
+    expect(fireWheel(-100, true).defaultPrevented).toBe(true)
+    expect(zoomPercent()).toBeGreaterThan(afterOne)
+
+    // 普通滚轮交给容器滚动：不拦截、不改变倍率
+    const plainBefore = zoomPercent()
+    expect(fireWheel(-100, false).defaultPrevented).toBe(false)
+    expect(zoomPercent()).toBe(plainBefore)
+  })
+
+  it('连续放大到上限 5000% 后不再变化', () => {
+    renderEditor()
+    const viewport = screen.getByTestId('canvas-viewport')
+    for (let i = 0; i < 40; i++) {
+      act(() => {
+        viewport.dispatchEvent(
+          new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+        )
+      })
+    }
+    expect(zoomPercent()).toBe(5000)
+
+    act(() => {
+      viewport.dispatchEvent(
+        new WheelEvent('wheel', { ctrlKey: true, deltaY: -100, bubbles: true, cancelable: true }),
+      )
+    })
+    expect(zoomPercent()).toBe(5000)
+  })
+
+  it('触屏双指捏合按指距比例缩放，并阻止页面原生缩放', () => {
+    renderEditor()
+    const viewport = screen.getByTestId('canvas-viewport')
+    const touch = (clientX: number, clientY = 0) => ({ clientX, clientY }) as Touch
+    const fireTouch = (type: string, touches: Touch[]) => {
+      const ev = new Event(type, { bubbles: true, cancelable: true })
+      Object.defineProperty(ev, 'touches', { value: touches })
+      act(() => {
+        viewport.dispatchEvent(ev)
+      })
+      return ev
+    }
+
+    const before = zoomPercent()
+    fireTouch('touchstart', [touch(0), touch(100)])
+    expect(fireTouch('touchmove', [touch(0), touch(200)]).defaultPrevented).toBe(true)
+    // 指距 ×2 → 倍率 ×2
+    expect(zoomPercent()).toBe(before * 2)
+
+    fireTouch('touchend', [])
+    expect(zoomPercent()).toBe(before * 2)
   })
 })

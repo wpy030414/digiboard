@@ -692,6 +692,125 @@ test.describe('编辑器 — 顶部栏', () => {
   })
 })
 
+test.describe('编辑器 — 移动端窄屏', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('默认收纳侧栏，顶部栏可横向滚动且右侧动作常驻可见', async ({ page }) => {
+    await gotoEditor(page)
+    // 移动端打开即收纳侧栏，把空间让给画布
+    await expect(page.getByTestId('sidebar')).toHaveCount(0)
+
+    // 左区内容超出时整条可横向滚动
+    const scroll = page.getByTestId('toolbar-scroll')
+    const metrics = await scroll.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }))
+    expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth)
+
+    // 右侧固定动作不参与滚动，始终在视口内
+    await expect(page.getByTestId('play')).toBeInViewport()
+    const toggle = page.getByTestId('toggle-sidebar')
+    await expect(toggle).toBeInViewport()
+
+    // 横滚到最右后，最左侧的「新建」也能滚回可见
+    await scroll.evaluate((el) => {
+      el.scrollLeft = el.scrollWidth
+    })
+    expect(await scroll.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0)
+
+    // 可临时展开侧栏；刷新后仍回到默认收纳（移动端不记忆）
+    await toggle.click()
+    await expect(page.getByTestId('sidebar')).toBeVisible()
+    await toggle.click()
+    await expect(page.getByTestId('sidebar')).toHaveCount(0)
+
+    await page.reload()
+    await expect(page.getByTestId('scene-canvas')).toBeVisible()
+    await expect(page.getByTestId('sidebar')).toHaveCount(0)
+  })
+})
+
+test.describe('编辑器 — 主内容区手势缩放', () => {
+  const zoomPercent = async (page: import('@playwright/test').Page) =>
+    Number(((await page.getByTestId('zoom-label').textContent()) ?? '').replace('%', ''))
+
+  test('触控板捏合（ctrl+wheel）连续缩放，普通滚轮不缩放', async ({ page }) => {
+    await gotoEditor(page)
+    const viewport = page.getByTestId('canvas-viewport')
+    const before = await zoomPercent(page)
+
+    const prevented = await viewport.evaluate((el) => {
+      const ev = new WheelEvent('wheel', {
+        ctrlKey: true,
+        deltaY: -100,
+        bubbles: true,
+        cancelable: true,
+      })
+      el.dispatchEvent(ev)
+      return ev.defaultPrevented
+    })
+    expect(prevented).toBe(true)
+    await expect.poll(() => zoomPercent(page)).toBeGreaterThan(before)
+
+    // 连续事件按当前显示倍率累积
+    const zoomedOnce = await zoomPercent(page)
+    await viewport.evaluate((el) => {
+      el.dispatchEvent(
+        new WheelEvent('wheel', { ctrlKey: true, deltaY: -60, bubbles: true, cancelable: true }),
+      )
+    })
+    await expect.poll(() => zoomPercent(page)).toBeGreaterThan(zoomedOnce)
+
+    // 普通滚轮保留给容器滚动：不拦截、不缩放
+    const beforePlain = await zoomPercent(page)
+    const plainPrevented = await viewport.evaluate((el) => {
+      const ev = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true })
+      el.dispatchEvent(ev)
+      return ev.defaultPrevented
+    })
+    expect(plainPrevented).toBe(false)
+    expect(await zoomPercent(page)).toBe(beforePlain)
+  })
+})
+
+test.describe('编辑器 — 触屏双指缩放', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+
+  test('双指捏合缩放，且不会在画布上误画像素', async ({ page, context }) => {
+    await gotoEditor(page)
+    const label = page.getByTestId('zoom-label')
+    const zoom = async () => Number(((await label.textContent()) ?? '').replace('%', ''))
+    const litBefore = await countLitPixels(page)
+    const zoomBefore = await zoom()
+
+    const box = (await page.getByTestId('scene-canvas').boundingBox())!
+    const cx = box.x + box.width / 2
+    const cy = box.y + box.height / 2
+    const cdp = await context.newCDPSession(page)
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [
+        { x: cx - 20, y: cy, id: 1 },
+        { x: cx + 20, y: cy, id: 2 },
+      ],
+    })
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [
+        { x: cx - 60, y: cy, id: 1 },
+        { x: cx + 60, y: cy, id: 2 },
+      ],
+    })
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+
+    // 指距 ×3 → 倍率约 ×3
+    await expect.poll(zoom).toBeGreaterThan(zoomBefore * 2)
+    // 双指手势（含首指落点）不应留下笔触
+    expect(await countLitPixels(page)).toBe(litBefore)
+  })
+})
+
 test.describe('编辑器 — 侧边栏面板标题与空态', () => {
   test('「属性」与「小组件」标题栏高度一致', async ({ page }) => {
     await gotoEditor(page)
