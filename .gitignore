@@ -39,3 +39,6 @@ __screenshots__/
 # Vite+
 .vite-plus/
 *.timestamp-*-*.mjs
+
+# 生成物：onnxruntime-web 的 WASM 运行时（vite.config.ts 的 copyOrtRuntime 插件）
+/src/ort/

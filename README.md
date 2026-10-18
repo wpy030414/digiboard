@@ -18,8 +18,8 @@
 - 运行 / 启动：
   - `pnpm dev` — 开发服务器（编辑器 `/`，播放页 `/play`）
   - `pnpm bridge` — 本地 SSE 桥接，读取 `~/.claude/sessions` 推送真实会话状态（详见 `bridge/README.md`；不启动时小组件自动降级为演示数据）
-  - `pnpm test` — vitest 单测（197 例）
-  - `pnpm test:e2e` — Playwright E2E（29 例，含 PNG 真实栅格化验证）
+  - `pnpm test` — vitest 单测（294 例）
+  - `pnpm test:e2e` — Playwright E2E（57 例，含 PNG 真实栅格化与主体抠图）
   - `pnpm check` — format + lint + type（提交前必须通过）
   - `pnpm build` — 生产构建到 `dist/`
 
@@ -30,9 +30,10 @@
   - PNG 导出依赖浏览器 canvas（jsdom 无法测试，由 Playwright 覆盖）
   - Claude 会话小组件需本机运行 bridge 才有真实数据，静态部署只有演示数据
   - 小组件目前仅内置「Claude Code 会话状态」一种
+  - 「从图片生成」可选的「主体抠图」首次使用需下载约 17MB（U²-Net-p 4.4MB + onnxruntime-web WASM 13MB），之后走浏览器缓存；推理全在本机完成
 
 ## 核心技术
 
-- 语言 / 框架 / 关键依赖：React 19.3 + TypeScript 5.9、Vite+（`vite-plus`，命令 `vp`，统一 dev/build/check/test）、Tailwind v4 + shadcn/ui、zustand 5（场景状态 + 撤销重做）、react-router-dom 7、js-yaml（场景序列化）、Playwright（E2E）
+- 语言 / 框架 / 关键依赖：React 19.3 + TypeScript 5.9、Vite+（`vite-plus`，命令 `vp`，统一 dev/build/check/test）、Tailwind v4 + shadcn/ui、zustand 5（场景状态 + 撤销重做）、react-router-dom 7、js-yaml（场景序列化）、onnxruntime-web（主体抠图本地 WASM 推理）、Playwright（E2E）
 
 详情见 `docs/`：`PRD.md`（行为与价值）、`ARCHITECTURE.md`（稳定结构）、`DECISIONS.md`（关键决策记录）、`specs/`（模块规格：画布引擎、Claude 小组件与桥接）；Agent 操作指南见根目录 `AGENTS.md`。

@@ -2,6 +2,10 @@ minimumReleaseAgeExclude:
   - '@types/node@26.6.4'
 # Vite+ 要求：将 vite 别名到统一工具链内核，并锁定 vitest 版本，
 # 避免依赖树里出现两份 Vite / Vitest 实例。
+# 与 vite-plus@1.0.0 对齐：`@latest` 在 1.3.0 发布后会让 `vp` 拒绝启动。
 overrides:
-  vite: npm:@voidzero-dev/vite-plus-core@latest
+  vite: npm:@voidzero-dev/vite-plus-core@1.0.0
   vitest: 5.0.1
+
+allowBuilds:
+  protobufjs: true

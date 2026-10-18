@@ -266,3 +266,44 @@
 - 为什么不选其他：固定 `base: '/digiboard/'` 会让本地 dev 与 e2e 全部迁到子路径（e2e baseURL、dev 端口均需跟着改）；改用 HashRouter 会牺牲播放页的干净 URL。
 - 后果：线上地址与分享链接必须带 `/digiboard/` 前缀；`404.html` 回退会丢失真实的 404 状态码（纯前端应用的既有取舍）。本地验证命令为 `DIGIBOARD_BASE=/digiboard/ pnpm build && DIGIBOARD_BASE=/digiboard/ pnpm preview`。
 - 何时重新审视：若改用自定义域名（配置 `public/CNAME`）或迁移到用户站点根仓库，base 需要回到 `/`。
+
+## ADR-022：图片转像素改为「结构保持型」管线
+
+- 日期：2026-10-18
+- 状态：已采纳（细化 ADR-014 / ADR-017）
+- 背景：旧的图片生成是「canvas 双线性缩到 W×H → 每格取平均色 → 4bit/通道分桶取频次 Top-N → sRGB 最近色」。低分辨率下轮廓穿过的格子被平均成源图里不存在的中间色，轮廓变成 2–3 格宽的渐变带；分桶按频次选色会丢掉眼睛、嘴唇这类低面积但高意义的颜色；默认 221 色对小画布实际是「不降色」，噪声被原样保留。
+- 决策：
+  - 4× 中间分辨率逐格采样（每格约 16 个原始样本），而不是一次性缩到目标尺寸。
+  - Kuwahara 预滤波（积分图实现，半径默认 3）：压平纹理、保留硬边。
+  - 逐格代表色：样本方差低取 Oklab 均值；方差高时做 2-means，取主导簇质心，避免把轮廓两侧混成第三种颜色。
+  - 调色板：Oklab 加权 k-means（k-means++ + 固定种子 LCG），色数默认按 `autoColorCount(cells) = clamp(round(sqrt(cells) × 0.6), 8, 32)` 自适应；质心吸附到 MARD 221 色卡并去重。
+  - 空间清理：网格级双边滤波 + 两轮 ICM（数据项 = Oklab 距离，平滑项按邻域色差衰减），跨强边不合并。
+  - 可选 L 通道非锐化（默认 0.3），找回平均滤波损失掉的局部对比。
+  - `imageFileToPixels` 第三参数改为 `number | ImageToPixelsOptions`，旧调用仍按色数处理；`quantizeImageData` 签名不变。
+- 为什么选这个：在 40×30 / 80×60 / 80×80 的实测里，14–20 色的新结果比旧算法 30 色更干净、轮廓更硬；200×200 最慢 169ms，40×30 约 22ms，纯前端可接受。Oklab 比 CIEDE2000 便宜一个数量级，感知上足够。
+- 为什么不选其他：
+  - Kopf 式对比度加权降采样：简化版实测反而增噪（把高对比噪点也加权放大），正确实现需要双边低频，复杂度不划算。
+  - 完整 Graph Cut / alpha-expansion：ICM 两轮已能把孤立格并掉，且实现与调试成本低得多。
+  - 端侧 / 云端生成模型：输入域窄、会改写颜色，暂作为可选风格另议。
+- 后果：纯红 / 纯绿的吸附结果从 F5/B5 变为 F4/B2（Oklab 下更接近纯色本身），单测与 E2E 断言随之更新；色数默认不再是 221，小画布结果更「豆化」。所有步骤确定性，同输入同输出。
+- 何时重新审视：若新增「色数」「风格强度」等 UI 选项，或引入主体抠图 / 卡通化前置阶段，应把参数从常量提升为 `ImageToPixelsOptions` 字段并补 E2E。
+
+## ADR-023：图片生成可选「主体抠图」，本地 U²-Net-p + WASM
+
+- 日期：2026-10-18
+- 状态：已采纳（扩展 ADR-022）
+- 背景：从照片生成拼豆图纸时，主体（人像、宠物、Logo）往往只占画面一小部分，背景却要消耗同样多的格子与豆子；低分辨率下主体被压得更小，轮廓更难辨认。用户明确同意引入 WASM 模型，但要求不依赖云端。
+- 决策：
+  - 模型：U²-Net-p（`u2netp.onnx`，4.4MB，Apache-2.0），权重随站点放在 `public/models/`，不走第三方 CDN，图片不出设备。
+  - 运行时：`onnxruntime-web/wasm`（WASM-only 入口，避免 26MB 的 jsep/WebGPU 变体被打进产物）；推理放在 `src/workers/matting.worker.ts`，主线程只做解码、320×320 归一化与进度展示。
+  - 构图：`subjectBounds` 取蒙版包围盒 → `cropRectForSubject` 加 12% padding 并扩展到目标宽高比 → 源图按此裁切；蒙版经 `destination-in` 合成到中间画布，覆盖率 <25% 的格子写 0（灭点）。
+  - 接入：`ImageToPixelsOptions.matte`；`NewSceneDialog` 图片模式新增「主体抠图」复选框（默认关），显示下载/初始化/推理进度；失败只 `console.warn` 并回退普通模式，不阻断生成。
+  - 构建：Vite 插件 `copyOrtRuntime`（`vite.config.ts`）在 dev 启动 / build 开始时把 ORT 的 `ort-wasm-simd-threaded.{mjs,wasm}` 复制到 `src/ort/`（git 忽略），Worker 用 `?url` 引入；`pnpm-workspace.yaml` 增加 `allowBuilds: protobufjs` 并把 `vite` override 从 `@latest` 钉回 `1.0.0`（新内核 1.3.0 与 `vite-plus@1.0.0` 不兼容）。
+- 为什么选这个：4.4MB 比 MODNet（26MB）轻 6 倍且对通用主体有效；WASM 推理约 0.85s、首次建会话约 3s，一次性操作可接受；全本地意味着静态站的隐私承诺不变。
+- 为什么不选其他：
+  - MODNet：人像边缘更好，但 26MB 且只擅长人像；
+  - MediaPipe Selfie Segmenter：约 250KB，但只识别人；
+  - 云端生成/抠图：照片要离开设备，且给静态站引入密钥与可用性依赖；
+  - 学习式像素化（Make Your Own Sprites）：许可证与 ONNX 导出都不适合随站点分发。
+- 后果：首次勾选会额外下载约 17MB（4.4MB 模型 + 13MB WASM），之后走 HTTP 缓存；`public/models` 增加 4.4MB 仓库体积；E2E 用「白底红圆」合成图覆盖开关与灭点语义。
+- 何时重新审视：若启用 WebGPU 后端、换用更小的通用抠图模型，或需要按主体自动分配网格密度（而非整块裁切）。

@@ -4,7 +4,8 @@
  * 三个来源：
  *  - 空白：生成指定尺寸的空像素基座；
  *  - 从 YAML 载入：读取导出的 .yml 场景文件（尺寸与图层随文件还原）；
- *  - 从图片生成：按 cover 裁切铺满目标尺寸，再做色彩降级（默认 16 色）。
+ *  - 从图片生成：按 cover 裁切铺满目标尺寸，再做结构保持型像素化
+ *    （色数按格子数自适应，8–32 色；Kuwahara 预滤波 + Oklab 调色板）。
  *
  * 尺寸上限 200×200（`MAX_SCENE_SIZE`），与工具栏输入框一致；YAML 超限由解析层直接拒绝。
  */
@@ -23,7 +24,9 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { clampSceneSize } from '@/engine/factories'
 import { sceneFromYaml } from '@/engine/export/to-yaml'
-import { DEFAULT_MAX_COLORS, imageFileToPixels } from '@/engine/image-to-pixels'
+import { imageFileToPixels } from '@/engine/image-to-pixels'
+import { segmentSubject } from '@/engine/matting-model'
+import type { Matte } from '@/engine/matting'
 import { useSceneStore } from '@/engine/scene-store'
 import { MAX_SCENE_SIZE, type Scene } from '@/engine/types'
 
@@ -50,6 +53,9 @@ export function NewSceneDialog({ open, onOpenChange }: NewSceneDialogProps) {
   const [yamlName, setYamlName] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 主体抠图：可选增强项，失败时静默退回普通模式
+  const [matting, setMatting] = useState(false)
+  const [mattingStatus, setMattingStatus] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const yamlRef = useRef<HTMLInputElement>(null)
 
@@ -64,6 +70,8 @@ export function NewSceneDialog({ open, onOpenChange }: NewSceneDialogProps) {
     setYamlName(null)
     setError(null)
     setBusy(false)
+    setMatting(false)
+    setMattingStatus(null)
     if (fileRef.current) fileRef.current.value = ''
     if (yamlRef.current) yamlRef.current.value = ''
   }, [open])
@@ -116,14 +124,35 @@ export function NewSceneDialog({ open, onOpenChange }: NewSceneDialogProps) {
         return
       }
       setBusy(true)
+      setMattingStatus(null)
+      let matte: Matte | null = null
+      if (matting) {
+        try {
+          matte = await segmentSubject(file, (progress) => {
+            if (progress.phase === 'download') {
+              setMattingStatus(`正在下载抠图模型 ${Math.round(progress.progress * 100)}%`)
+            } else if (progress.phase === 'init') {
+              setMattingStatus('正在初始化抠图模型…')
+            } else {
+              setMattingStatus('正在识别主体…')
+            }
+          })
+        } catch (e) {
+          // 抠图是增强项：失败不阻断生成，退回普通模式
+          console.warn('[matting] 主体抠图失败，已退回普通模式', e)
+          matte = null
+        }
+      }
       try {
-        const source = await imageFileToPixels(file, size, DEFAULT_MAX_COLORS)
+        const source = await imageFileToPixels(file, size, { matte })
         newScene(size, source)
       } catch (e) {
         setError(e instanceof Error ? e.message : '图片转换失败')
         setBusy(false)
+        setMattingStatus(null)
         return
       }
+      setMattingStatus(null)
       setBusy(false)
     } else {
       newScene(size)
@@ -227,6 +256,22 @@ export function NewSceneDialog({ open, onOpenChange }: NewSceneDialogProps) {
                   alt="预览"
                   className="max-h-40 w-full rounded-md border object-contain"
                 />
+              )}
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={matting}
+                  disabled={busy}
+                  data-testid="new-matting"
+                  onChange={(e) => setMatting(e.target.checked)}
+                  className="size-3.5 accent-primary"
+                />
+                主体抠图（本地运行，首次加载约 4.4MB）
+              </label>
+              {mattingStatus && (
+                <p className="text-xs text-muted-foreground" data-testid="new-matting-status">
+                  {mattingStatus}
+                </p>
               )}
             </div>
           )}

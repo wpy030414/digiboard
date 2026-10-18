@@ -61,10 +61,51 @@ test.describe('编辑器 — 基础交互', () => {
     })
     expect(state.size).toEqual({ w: 40, h: 30 })
     const palette = state.palette.map((c) => c.toLowerCase())
-    // 颜色会吸附到 MARD 拼豆色卡：纯红 → F5，纯绿 → B5
-    expect(palette).toContain('#e10328')
-    expect(palette).toContain('#39e158')
+    // 颜色会吸附到 MARD 拼豆色卡：纯红 → F4，纯绿 → B2
+    expect(palette).toContain('#fb2a40')
+    expect(palette).toContain('#64f343')
     expect(state.lit).toBeGreaterThan(0)
+  })
+
+  test('从图片生成时勾选主体抠图，背景写灭点', async ({ page }) => {
+    test.setTimeout(60_000)
+    await gotoEditor(page)
+    await page.getByTestId('new-scene').click()
+    await page.getByTestId('new-mode-image').click()
+    // 白底 + 居中红色圆：U²-Net-p 能稳定识别为主体
+    const dataUrl = await page.evaluate(() => {
+      const c = document.createElement('canvas')
+      c.width = 320
+      c.height = 320
+      const ctx = c.getContext('2d')!
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, 320, 320)
+      ctx.fillStyle = '#d02020'
+      ctx.beginPath()
+      ctx.arc(160, 160, 90, 0, Math.PI * 2)
+      ctx.fill()
+      return c.toDataURL('image/png')
+    })
+    const buffer = Buffer.from(dataUrl.split(',')[1]!, 'base64')
+    await page.getByTestId('new-image-input').setInputFiles({
+      name: 'dot.png',
+      mimeType: 'image/png',
+      buffer,
+    })
+    await page.getByTestId('new-matting').check()
+    await page.getByTestId('new-create').click()
+    await expect(page.getByTestId('new-scene-dialog')).toBeHidden({ timeout: 55_000 })
+
+    const state = await page.evaluate(() => {
+      const st = (window as any).__digiboard.scene.getState()
+      const px = st.scene.layers.find((l: any) => l.type === 'pixel')
+      let lit = 0
+      for (const v of px.pixels) if (v) lit++
+      return { lit, total: px.pixels.length }
+    })
+    // 主体被保留、背景被写灭点：亮格数应远小于整块板子
+    expect(state.lit).toBeGreaterThan(0)
+    expect(state.lit).toBeLessThan(state.total * 0.8)
   })
 
   test('像素基座不出现在图层面板，也不能新增', async ({ page }) => {

@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_MAX_COLORS, coverCrop, quantizeImageData } from './image-to-pixels'
+import {
+  DEFAULT_MAX_COLORS,
+  autoColorCount,
+  coverCrop,
+  kuwahara,
+  quantizeImageData,
+  representativeColor,
+} from './image-to-pixels'
 import { MAX_BEAD_COLORS, beadColorForHex } from './beads-palette'
+import { rgbToOklab } from './oklab'
 
 /** 生成 RGBA 数据：每格 [r,g,b,a]。 */
 function rgba(cells: Array<[number, number, number, number]>): Uint8ClampedArray {
@@ -41,8 +49,8 @@ describe('quantizeImageData — 色彩降级', () => {
       [0, 0, 255, 255],
     ])
     const { palette, pixels } = quantizeImageData(data, 2, 2)
-    expect(palette).toEqual(['#e10328', '#0f52bd'])
-    expect(palette.map((hex) => beadColorForHex(hex)?.code)).toEqual(['F5', 'C8'])
+    expect(palette).toEqual(['#fb2a40', '#3349c3'])
+    expect(palette.map((hex) => beadColorForHex(hex)?.code)).toEqual(['F4', 'C9'])
     expect(Array.from(pixels)).toEqual([1, 1, 2, 2])
   })
 
@@ -52,7 +60,7 @@ describe('quantizeImageData — 色彩降级', () => {
       [0, 0, 0, 0],
     ])
     const { palette, pixels } = quantizeImageData(data, 2, 1)
-    expect(palette).toEqual(['#39e158'])
+    expect(palette).toEqual(['#64f343'])
     expect(Array.from(pixels)).toEqual([1, 0])
   })
 
@@ -97,5 +105,57 @@ describe('quantizeImageData — 色彩降级', () => {
     const b = quantizeImageData(data, 3, 1)
     expect(a.palette).toEqual(b.palette)
     expect(Array.from(a.pixels)).toEqual(Array.from(b.pixels))
+  })
+})
+
+describe('autoColorCount — 自适应色数', () => {
+  it('按格子数收敛，并落在 8–32 之间', () => {
+    expect(autoColorCount(1)).toBe(8)
+    expect(autoColorCount(1200)).toBe(21)
+    expect(autoColorCount(4800)).toBe(32)
+    expect(autoColorCount(40000)).toBe(32)
+  })
+})
+
+describe('representativeColor — 单格代表色', () => {
+  const black = rgbToOklab(0, 0, 0)
+  const white = rgbToOklab(255, 255, 255)
+
+  it('低方差取均值', () => {
+    const a = rgbToOklab(100, 100, 100)
+    const b = rgbToOklab(104, 104, 104)
+    const rep = representativeColor([a, b, a, b])
+    expect(rep[0]).toBeCloseTo((a[0] + b[0]) / 2, 5)
+  })
+
+  it('真边缘取主导簇，不混成灰色', () => {
+    // 16 个样本：10 黑 6 白，2-means 后应返回黑（主导簇），而不是中间灰
+    const samples = [...Array(10).fill(black), ...Array(6).fill(white)]
+    const rep = representativeColor(samples)
+    expect(rep[0]).toBeCloseTo(black[0], 5)
+    expect(rep[1]).toBeCloseTo(black[1], 5)
+    expect(rep[2]).toBeCloseTo(black[2], 5)
+  })
+})
+
+describe('kuwahara — 保边平滑', () => {
+  it('保留硬边，不把两侧混成灰带', () => {
+    const w = 11
+    const h = 5
+    const data = new Uint8ClampedArray(w * h * 4)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const o = (y * w + x) * 4
+        const v = x < 5 ? 0 : 255
+        data[o] = v
+        data[o + 1] = v
+        data[o + 2] = v
+        data[o + 3] = 255
+      }
+    }
+    const out = kuwahara(data, w, h, 2)
+    // 边界两侧的像素仍应是纯黑/纯白
+    expect(out[(2 * w + 4) * 4]).toBe(0)
+    expect(out[(2 * w + 5) * 4]).toBe(255)
   })
 })

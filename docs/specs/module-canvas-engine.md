@@ -16,7 +16,8 @@
   - 撤销/重做：离散操作（fill/clear/add/remove/resize）自动入栈；连续操作（画笔拖拽）由调用方在笔画起点 `commitHistory()` 一次；栈上限 100。
   - 导出 PNG：固定黑色底 → 像素层（同一套圆角点阵几何）→ 矢量层（SVG→Image 逐层栅格化），严格按 layers 数组顺序合成。
   - 导出 YAML：像素 RLE 编码，round-trip 无损；base64 变体进播放页 URL。
-  - 新建画布：对话框可选空白或图片生成；图片经 `image-to-pixels.ts` 做 cover 裁切 + 按 MARD 221 色色卡降级（0=灭，1–221 上色）。
+  - 新建画布：对话框可选空白或图片生成；图片经 `image-to-pixels.ts` 做 cover 裁切 + 结构保持型像素化（Kuwahara 预滤波、逐格主导色、Oklab k-means 自适应色数、空间清理），最终吸附 MARD 221 色色卡（0=灭，1–221 上色）。
+  - 主体抠图（可选）：`matting-model.ts` 在 Web Worker 里用 onnxruntime-web 跑 U²-Net-p（4.4MB，本地权重），得到 320×320 蒙版；`cropRectForSubject` 按主体包围盒 + padding + 目标宽高比重选裁切区域，`destination-in` 合成后覆盖率不足 25% 的格子写 0。模型失败时静默回退普通模式。
 
 ## 输入 / 输出
 
