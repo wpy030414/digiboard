@@ -6,11 +6,9 @@ import { defineConfig } from 'vite-plus'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-/**
- * 部署基路径：GitHub Pages 项目站点挂在 `/<repo>/` 下（本项目为 `/digiboard/`），
- * 资源与路由都必须带此前缀。本地 dev / preview / e2e 保持根路径；
- * 需要复现线上构建时用 `DIGIBOARD_BASE=/digiboard/ pnpm build` 覆盖。
- */
+// 部署基路径：本地开发与预览恒为根路径；
+// CI 注入 PAGES_BASE_PATH 决定线上前缀：项目页 /<repo>/，自定义域或用户页 /
+// 代码不做任何域名或仓库名推断
 /**
  * 把 onnxruntime-web 的 WASM 运行时复制到 src/ort/。
  *
@@ -41,10 +39,7 @@ function copyOrtRuntime() {
   }
 }
 
-const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1]
-const base =
-  process.env.DIGIBOARD_BASE ??
-  (process.env.GITHUB_ACTIONS === 'true' && repoName ? `/${repoName}/` : '/')
+const base = process.env.PAGES_BASE_PATH || '/'
 
 // Vite+ 单一配置：dev/build/preview + test(vitest) + lint(oxlint) + fmt(oxfmt)
 export default defineConfig({

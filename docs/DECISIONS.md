@@ -20,10 +20,11 @@
 - 状态：已采纳
 - 背景：用户指定「打包使用 vite+」。vite-plus@1.0.0 刚发布（VoidZero 统一工具链：vite/vitest/oxlint/oxfmt/rolldown 合一，命令 `vp`）。原项目已在用 `vite beta` + `oxfmt`，取向一致。
 - 考虑过的方案：裸 Vite 8 + 独立 vitest/oxlint/oxfmt；Vite+ 统一入口。
-- 决策：`vite-plus` 单依赖 + 单份 `vite.config.ts`（内联 test/lint/fmt 配置），CI 用 `voidzero-dev/setup-vp@v1.21.1`。
+- 决策：`vite-plus` 单依赖 + 单份 `vite.config.ts`（内联 test/lint/fmt 配置），CI 用 `voidzero-dev/setup-vp@v1.21.2`。
 - 为什么选这个：用户指定；减少 5+ 个工具依赖为 1 个；oxfmt/oxlint 版本与工具链绑定不会漂移。
 - 为什么不选其他：裸 Vite 需要自行拼装并对齐各工具版本。
 - 后果：踩到 pnpm override 只在依赖图内生效的坑——`types: ["vite/client"]` 与 `import 'vitest'` 无法解析，需把 `vite`（别名到 `@voidzero-dev/vite-plus-core`）与 `vitest@5.0.1` 提升为顶层 devDependencies（vite-plus README 官方建议同款做法）。vite-plus 1.0.0 发布仅数天，后续升级需回归 `vp check/build/test` 三件套。
+- 更新（2026-10-18）：工具链整体升级到 `vite-plus@1.3.0` + `vite` 内核 `1.3.0` + `vitest@5.0.5`，`pnpm-workspace.yaml` 的 override 同步升级；`vp check` / `vp test`（336 用例）/ `vp build` / 60 条 E2E 全部回归通过。
 - 何时重新审视：vite-plus 出现破坏性变更或长期停更时。
 
 ## ADR-003：数码管用 SVG 矢量浮层而非栅格化进点阵
@@ -260,14 +261,14 @@
 - 状态：已采纳
 - 背景：仓库部署到 GitHub Pages 项目站点，实际地址是 `https://wpy030414.github.io/digiboard/`，但构建产物引用 `/assets/*`、路由跑在站点根、`/play` 直达会 404——线上是白屏。
 - 决策：
-  - `vite.config.ts` 新增 `base`：CI（`GITHUB_ACTIONS=true`）下自动取 `/<GITHUB_REPOSITORY 的 repo>/`，本地 dev/preview/e2e 保持 `/`；`DIGIBOARD_BASE` 可显式覆盖，便于本地复现线上构建。
+  - `vite.config.ts` 的 `base` 只读 CI 注入的 `PAGES_BASE_PATH`，本地 dev/preview/e2e 恒为 `/`；代码不推断仓库名或域名，项目页默认前缀由 workflow 的 `format('/{0}/', github.event.repository.name)` 给出。
   - `BrowserRouter` 的 `basename` 直接读 `import.meta.env.BASE_URL`（去掉尾斜杠），不维护第二份路径常量。
   - workflow 在 `vp build` 后把 `dist/index.html` 复制为 `dist/404.html` 并 `touch dist/.nojekyll`：GitHub Pages 没有 SPA 回退，`/digiboard/play` 直达/刷新靠 404 页把控制权交回前端路由。
-  - `index.html` 的 `/favicon.ico` 由 Vite 按 base 自动重写，无需手改为相对路径。
-- 为什么选这个：base 从 CI 环境推断，改名/fork 无需改代码；basename 复用 `BASE_URL` 避免两份路径漂移；`404.html` 是 GitHub Pages 上唯一无需服务端配置的 SPA 回退手段。
+  - `index.html` 的图标引用统一写 `%BASE_URL%favicon.ico`；`public/.nojekyll` 纳入仓库，避免 Jekyll 丢弃 `_` 开头的构建产物。
+- 为什么选这个：base 由 CI 注入、代码零推断，改名/fork 只需动流水线与仓库变量；basename 复用 `BASE_URL` 避免两份路径漂移；`404.html` 是 GitHub Pages 上唯一无需服务端配置的 SPA 回退手段。
 - 为什么不选其他：固定 `base: '/digiboard/'` 会让本地 dev 与 e2e 全部迁到子路径（e2e baseURL、dev 端口均需跟着改）；改用 HashRouter 会牺牲播放页的干净 URL。
-- 后果：线上地址与分享链接必须带 `/digiboard/` 前缀；`404.html` 回退会丢失真实的 404 状态码（纯前端应用的既有取舍）。本地验证命令为 `DIGIBOARD_BASE=/digiboard/ pnpm build && DIGIBOARD_BASE=/digiboard/ pnpm preview`。
-- 何时重新审视：若改用自定义域名（配置 `public/CNAME`）或迁移到用户站点根仓库，base 需要回到 `/`。
+- 后果：线上地址与分享链接必须带 `/digiboard/` 前缀；`404.html` 回退会丢失真实的 404 状态码（纯前端应用的既有取舍）。本地验证命令为 `PAGES_BASE_PATH=/digiboard/ pnpm build && PAGES_BASE_PATH=/digiboard/ pnpm preview`。
+- 何时重新审视：若改用自定义域名或迁移到用户站点根仓库，把仓库变量 `PAGES_BASE_PATH` 设为 `/` 即可，无需改代码、也不放 `CNAME` 文件。
 
 ## ADR-022：图片转像素改为「结构保持型」管线
 
@@ -300,7 +301,7 @@
   - 运行时：`onnxruntime-web/wasm`（WASM-only 入口，避免 26MB 的 jsep/WebGPU 变体被打进产物）；推理放在 `src/workers/matting.worker.ts`，主线程只做解码、320×320 归一化与进度展示。
   - 构图：`subjectBounds` 取蒙版包围盒 → `cropRectForSubject` 加 12% padding 并扩展到目标宽高比 → 源图按此裁切；蒙版经 `destination-in` 合成到中间画布，覆盖率 <25% 的格子写 0（灭点）。
   - 接入：`ImageToPixelsOptions.matte`；`NewSceneDialog` 图片模式新增「主体抠图」复选框（默认关），显示下载/初始化/推理进度；失败只 `console.warn` 并回退普通模式，不阻断生成。
-  - 构建：Vite 插件 `copyOrtRuntime`（`vite.config.ts`）在 dev 启动 / build 开始时把 ORT 的 `ort-wasm-simd-threaded.{mjs,wasm}` 复制到 `src/ort/`（git 忽略），Worker 用 `?url` 引入；`pnpm-workspace.yaml` 增加 `allowBuilds: protobufjs` 并把 `vite` override 从 `@latest` 钉回 `1.0.0`（新内核 1.3.0 与 `vite-plus@1.0.0` 不兼容）。
+  - 构建：Vite 插件 `copyOrtRuntime`（`vite.config.ts`）在 dev 启动 / build 开始时把 ORT 的 `ort-wasm-simd-threaded.{mjs,wasm}` 复制到 `src/ort/`（git 忽略），Worker 用 `?url` 引入；`pnpm-workspace.yaml` 增加 `allowBuilds: protobufjs`，并把 `vite` override 钉到与 `vite-plus` 完全一致的版本（当前 `1.3.0`；内核与 `vite-plus` 必须同批升级，否则 `vp` 拒绝启动）。
 - 为什么选这个：4.4MB 比 MODNet（26MB）轻 6 倍且对通用主体有效；WASM 推理约 0.85s、首次建会话约 3s，一次性操作可接受；全本地意味着静态站的隐私承诺不变。
 - 为什么不选其他：
   - MODNet：人像边缘更好，但 26MB 且只擅长人像；
