@@ -14,7 +14,10 @@
  * 安全：
  *   - 只监听 127.0.0.1（本机回环），默认不对外。
  *   - 绝不读取 `<pid>.<hex>.key` 鉴权令牌文件。
- *   - CORS：默认允许 localhost/127.0.0.1 任意端口的副屏；可用 DIGIBOARD_ORIGIN 收紧。
+ *   - CORS：**默认放行任意来源**——副屏可能部署在任意域名（GitHub Pages、自建 CDN），
+ *     而 bridge 永远只在本机回环上，能连到它的前提是「攻击者已能在你的浏览器里跑代码」，
+ *     此时限制 Origin 并无实质防护价值。需要收紧时用 DIGIBOARD_ORIGIN 指定白名单。
+ *     代价：本机浏览器打开的任意网页都能读到会话 cwd/prompt/模型/token，见 bridge/README.md。
  */
 
 import http from 'node:http'
@@ -28,7 +31,6 @@ const PORT = Number(process.env.PORT || 4321)
 const POLL_MS = Number(process.env.POLL_MS || 1000)
 const TAIL_BYTES = Number(process.env.TAIL_BYTES || 256 * 1024)
 const CLAUDE_DIR = process.env.CLAUDE_DIR || path.join(os.homedir(), '.claude')
-const ALLOWED_ORIGIN = process.env.DIGIBOARD_ORIGIN || null
 
 const SESSIONS_DIR = path.join(CLAUDE_DIR, 'sessions')
 const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects')
@@ -37,27 +39,64 @@ const PROJECTS_DIR = path.join(CLAUDE_DIR, 'projects')
 // CORS
 // ---------------------------------------------------------------------------
 
-/** 是否允许该 Origin 跨域读取。默认放行本机任意端口的副屏。 */
-function originAllowed(origin) {
-  if (!origin) return true // 非浏览器请求（curl 等）无 Origin
-  if (ALLOWED_ORIGIN) return origin === ALLOWED_ORIGIN
-  try {
-    const u = new URL(origin)
-    const hostOk = u.hostname === 'localhost' || u.hostname === '127.0.0.1'
-    return hostOk && (u.protocol === 'http:' || u.protocol === 'https:')
-  } catch {
-    return false
-  }
+/** 去掉 Origin 末尾斜杠，便于白名单全等比较。 */
+function trimOrigin(origin) {
+  return String(origin ?? '').replace(/\/+$/, '')
 }
 
-function setCORS(req, res) {
-  const origin = req.headers.origin
-  if (origin && originAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin)
-    res.setHeader('Vary', 'Origin')
+/**
+ * 解析 DIGIBOARD_ORIGIN 白名单（逗号或空格分隔，可多值）。
+ * 每次读 env 而非模块级常量：便于测试改写，也便于运行时注入。
+ * @returns {string[]} 空数组 = 不设限（默认）
+ */
+function allowedOrigins() {
+  return (process.env.DIGIBOARD_ORIGIN || '')
+    .split(/[,\s]+/)
+    .map(trimOrigin)
+    .filter(Boolean)
+}
+
+/**
+ * 是否允许该 Origin 跨域读取。
+ * 默认放行**任意** Origin；仅当设置了 DIGIBOARD_ORIGIN 白名单时才收紧。
+ */
+function originAllowed(origin) {
+  if (!origin) return true // 非浏览器请求（curl 等）无 Origin
+  const list = allowedOrigins()
+  if (list.length === 0) return true
+  return list.includes(trimOrigin(origin))
+}
+
+/**
+ * 计算 CORS 响应头（纯函数，便于测试）。
+ * - 无白名单：`Access-Control-Allow-Origin: *`。前端用 `new EventSource(url)`（不带凭据，
+ *   `withCredentials` 为 false），故通配符即可满足浏览器要求，也不必回显 Origin。
+ *   注意：一旦前端改为携带凭据，浏览器会拒绝通配符，届时必须改回回显 Origin + `Vary`。
+ * - 有白名单：回显命中的确切 Origin + `Vary: Origin`（避免缓存串源）。
+ * - privateNetwork：Chrome 私有网络访问（公网 https 页 → 本机 http）要求的预检放行头。
+ * @returns {Record<string, string>}
+ */
+function corsHeaders(origin, { privateNetwork = false } = {}) {
+  const headers = {
+    'Access-Control-Allow-Headers': 'Content-Type, Cache-Control',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
   }
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Cache-Control')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  const list = allowedOrigins()
+  if (list.length === 0) {
+    headers['Access-Control-Allow-Origin'] = '*'
+  } else if (origin && originAllowed(origin)) {
+    headers['Access-Control-Allow-Origin'] = trimOrigin(origin)
+    headers['Vary'] = 'Origin'
+  }
+  if (privateNetwork) headers['Access-Control-Allow-Private-Network'] = 'true'
+  return headers
+}
+
+/** 写 CORS 头。预检时若浏览器声明了私有网络访问，一并放行。 */
+function setCORS(req, res, { preflight = false } = {}) {
+  const requested = req.headers['access-control-request-private-network'] === 'true'
+  const headers = corsHeaders(req.headers.origin, { privateNetwork: preflight && requested })
+  for (const [k, v] of Object.entries(headers)) res.setHeader(k, v)
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +322,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
 
   if (req.method === 'OPTIONS') {
-    setCORS(req, res)
+    setCORS(req, res, { preflight: true })
     res.writeHead(204)
     res.end()
     return
@@ -328,6 +367,9 @@ export {
   pidAlive,
   normalizeStatus,
   originAllowed,
+  allowedOrigins,
+  corsHeaders,
+  trimOrigin,
   parseTailFromText,
 }
 
@@ -335,9 +377,15 @@ export {
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
 if (isMain) {
   server.listen(PORT, HOST, () => {
+    const list = allowedOrigins()
     console.log(`[digiboard-bridge] SSE on http://${HOST}:${PORT}/events`)
     console.log(`[digiboard-bridge] watching ${SESSIONS_DIR}`)
     console.log(`[digiboard-bridge] snapshot: http://${HOST}:${PORT}/status`)
+    console.log(
+      list.length === 0
+        ? '[digiboard-bridge] CORS: 允许任意来源（设 DIGIBOARD_ORIGIN 可收紧到白名单）'
+        : `[digiboard-bridge] CORS: 仅允许 ${list.join(', ')}`,
+    )
     broadcast()
     const timer = setInterval(broadcast, POLL_MS)
     const shutdown = () => {

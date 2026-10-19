@@ -28,7 +28,7 @@
 
 ## 约束
 
-- bridge 只监听 `127.0.0.1`；**绝不读取 `<pid>.<hex>.key` 令牌文件**；CORS 默认只放行 localhost/127.0.0.1 任意端口，`DIGIBOARD_ORIGIN` 可收紧到确切源。
+- bridge 只监听 `127.0.0.1`；**绝不读取 `<pid>.<hex>.key` 令牌文件**；CORS 默认放行任意 Origin（`Access-Control-Allow-Origin: *`，副屏部署域名不可枚举，回环可达性是唯一屏障），`DIGIBOARD_ORIGIN` 可收紧为白名单（逗号/空格分隔多值，命中时回显确切 Origin + `Vary: Origin`）；`OPTIONS` 预检在 `Access-Control-Request-Private-Network: true` 时回 `Access-Control-Allow-Private-Network: true`（Chrome PNA，公网 https 页 → 本机 http 必需）。
 - 用 `process.kill(pid, 0)` 判活（EPERM 也算活），跳过异常退出残留的陈旧 sessions 文件；只读 jsonl 尾部 `TAIL_BYTES`（默认 256KB）反向扫描，不全量解析大文件（活跃 jsonl 可达数 MB）。
 - 环境变量可配：HOST/PORT(4321)/POLL_MS(1000)/TAIL_BYTES/CLAUDE_DIR/DIGIBOARD_ORIGIN。
 - `status` 归一：合法值 busy/idle/waiting 透传，未知值→unknown；`waitingFor` 是开放字符串，原样透传不写死白名单。
@@ -45,7 +45,8 @@
 
 ## 验收标准
 
-- [x] vitest（bridge node 环境）：escapeCwd（含 github.io 真实案例）、normalizeStatus 三态、originAllowed CORS 白名单、parseTailFromText 反向扫描（model/usage/tool/prompt、跳过损坏行、headTruncated 丢弃首行）、pidAlive（bridge/server.test.mjs）
+- [x] vitest（bridge node 环境）：escapeCwd（含 github.io 真实案例）、normalizeStatus 三态、originAllowed（默认全放行 / 白名单收紧 / 多值 / 末尾斜杠归一）、corsHeaders（通配符 / 回显 + Vary / 未命中不下发 ACAO / PNA 头）、trimOrigin、parseTailFromText 反向扫描（model/usage/tool/prompt、跳过损坏行、headTruncated 丢弃首行）、pidAlive（bridge/server.test.mjs）
+- [x] 人工 curl 验证：默认实例对 `Origin: https://demo.xrl.im` 与 `https://evil.com` 均返回 `ACAO: *`；`OPTIONS` + PNA 请求头返回 `ACAPN: true`；`DIGIBOARD_ORIGIN=https://demo.xrl.im` 实例命中回显 + `Vary: Origin`、未命中不下发 ACAO；`/events` 首帧 SSE 可读
 - [x] vitest（jsdom）：ClaudeStatusWidget 渲染标题/会话/连接态徽标（DISCONNECT/LIVE/connecting）、断连时不渲染任何会话、busy/idle/waiting 标签、waitingFor 显示、当前工具、model/token/cacheRead/cwd/消息格式、config 三开关、空态、6 会话截断、store 响应性重渲染（ClaudeStatusWidget.test.tsx）
 - [x] Playwright：无 bridge 时显示 DISCONNECT 且不注入演示会话；bridge 运行时连 LIVE（未运行自动 skip，已手动验证真实 busy 会话通过）
 - [x] 真实数据验证：bridge `/status` 对本机 4 个活跃会话返回正确 status/name/model/tokens/currentTool/lastMessage（curl 人工核对）

@@ -62,6 +62,7 @@
 - 为什么不选其他：轮询浪费请求且延迟高；WebSocket 双向能力用不上；手动粘贴不「实时」；File System Access API 要用户手势授权且 Safari 不支持。
 - 后果：bridge 必须严守安全边界——只监听 127.0.0.1、绝不读 `.key` 令牌文件、`process.kill(pid,0)` 判活跳过异常退出残留、CORS 默认只放行本机（`DIGIBOARD_ORIGIN` 可收紧）。sessions/*.json 的 `status` 实际有三态 busy/idle/**waiting**（+waitingFor 字符串，如 "dialog open"），前端 schema 已对齐并原样透传。
 - 修订（2026-10-18）：用户要求「DEMO 不许加数据，连不上右上角就显示 DISCONNECT」。前端不再内置 mock 数据与心跳，断连时清空会话；`ConnectionStatus` 收敛为 connecting/live/error。
+- 修订（2026-10-19）：线上副屏（如 `https://demo.xrl.im`）被 CORS 拦截，用户要求「允许连接所有客户端」。CORS 默认改为 `Access-Control-Allow-Origin: *`：副屏部署域名无法枚举，且 bridge 只在回环上——能向它发请求的前提是代码已在用户浏览器里运行，此时 Origin 校验没有实质防护价值。`DIGIBOARD_ORIGIN` 保留为多值白名单（逗号/空格分隔），命中回显确切 Origin + `Vary: Origin`，启动日志打印当前策略。同时补 Chrome 私有网络访问（PNA）预检头 `Access-Control-Allow-Private-Network`——公网 https 页请求本机 http 服务时 Chrome 强制预检，缺该头会连不上。已知代价（用户接受）：本机任意网页可读到会话 cwd/会话名/prompt 摘要/模型与 token 用量；不含鉴权令牌（`.key` 从不读取）。`originAllowed` 不再做 URL 解析，非法 Origin 字符串在无白名单时同样放行。
 - 何时重新审视：Claude Code 官方提供浏览器可达的状态 API 时（届时 bridge 可退役）。
 
 ## ADR-006：历史 commit 重写用 git-filter-repo，作者时间保留，不推送

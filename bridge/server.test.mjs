@@ -2,15 +2,19 @@
 /**
  * bridge/server.mjs 纯函数单测（node 环境，不启动服务器）。
  *
- * 覆盖：cwd 转义、status 归一、CORS 白名单、jsonl 尾部反向扫描、PID 判活。
+ * 覆盖：cwd 转义、status 归一、CORS（默认全放行 / 白名单收紧 / 响应头）、
+ * jsonl 尾部反向扫描、PID 判活。
  * （会话聚合 collectSessions 依赖真实 ~/.claude 与存活进程，放到 E2E 覆盖。）
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   escapeCwd,
   normalizeStatus,
   originAllowed,
+  allowedOrigins,
+  corsHeaders,
+  trimOrigin,
   parseTailFromText,
   pidAlive,
 } from './server.mjs'
@@ -46,15 +50,15 @@ describe('bridge — normalizeStatus', () => {
 })
 
 describe('bridge — originAllowed (CORS)', () => {
-  it('放行本机 localhost/127.0.0.1 任意端口', () => {
-    expect(originAllowed('http://localhost:5173')).toBe(true)
-    expect(originAllowed('http://127.0.0.1:4173')).toBe(true)
-    expect(originAllowed('https://localhost:8443')).toBe(true)
+  afterEach(() => {
+    delete process.env.DIGIBOARD_ORIGIN
   })
 
-  it('拒绝外部 Origin', () => {
-    expect(originAllowed('https://evil.com')).toBe(false)
-    expect(originAllowed('http://localhost.evil.com')).toBe(false)
+  it('默认放行任意 Origin（公网部署的副屏也能连）', () => {
+    expect(originAllowed('https://demo.xrl.im')).toBe(true)
+    expect(originAllowed('http://localhost:5173')).toBe(true)
+    expect(originAllowed('https://wpy030414.github.io')).toBe(true)
+    expect(originAllowed('http://evil.com')).toBe(true)
   })
 
   it('无 Origin（非浏览器请求）放行', () => {
@@ -62,8 +66,84 @@ describe('bridge — originAllowed (CORS)', () => {
     expect(originAllowed('')).toBe(true)
   })
 
-  it('非法 URL 拒绝', () => {
-    expect(originAllowed('not a url')).toBe(false)
+  it('设置 DIGIBOARD_ORIGIN 后收紧到白名单', () => {
+    process.env.DIGIBOARD_ORIGIN = 'https://demo.xrl.im'
+    expect(originAllowed('https://demo.xrl.im')).toBe(true)
+    expect(originAllowed('https://evil.com')).toBe(false)
+    expect(originAllowed('http://localhost:5273')).toBe(false)
+  })
+
+  it('白名单末尾斜杠不敏感', () => {
+    process.env.DIGIBOARD_ORIGIN = 'https://demo.xrl.im/'
+    expect(originAllowed('https://demo.xrl.im')).toBe(true)
+  })
+
+  it('白名单支持多值（逗号或空格分隔）', () => {
+    process.env.DIGIBOARD_ORIGIN = 'https://a.example,https://b.example'
+    expect(originAllowed('https://a.example')).toBe(true)
+    expect(originAllowed('https://b.example')).toBe(true)
+    expect(originAllowed('https://c.example')).toBe(false)
+
+    process.env.DIGIBOARD_ORIGIN = 'https://a.example https://b.example'
+    expect(allowedOrigins()).toEqual(['https://a.example', 'https://b.example'])
+  })
+
+  it('空白名单等价于不设限', () => {
+    process.env.DIGIBOARD_ORIGIN = '   '
+    expect(allowedOrigins()).toEqual([])
+    expect(originAllowed('https://whatever.example')).toBe(true)
+  })
+
+  it('非法 URL 在无白名单时仍放行（不再做 URL 解析）', () => {
+    expect(originAllowed('not a url')).toBe(true)
+  })
+})
+
+describe('bridge — corsHeaders', () => {
+  afterEach(() => {
+    delete process.env.DIGIBOARD_ORIGIN
+  })
+
+  it('默认返回通配符 ACAO，且始终带方法与头白名单', () => {
+    expect(corsHeaders('https://demo.xrl.im')).toEqual({
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Content-Type, Cache-Control',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    })
+    expect(corsHeaders(undefined)['Access-Control-Allow-Origin']).toBe('*')
+  })
+
+  it('有白名单时回显确切 Origin 并带 Vary', () => {
+    process.env.DIGIBOARD_ORIGIN = 'https://demo.xrl.im'
+    expect(corsHeaders('https://demo.xrl.im')).toMatchObject({
+      'Access-Control-Allow-Origin': 'https://demo.xrl.im',
+      Vary: 'Origin',
+    })
+  })
+
+  it('白名单未命中时不下发 ACAO（浏览器会拦截）', () => {
+    process.env.DIGIBOARD_ORIGIN = 'https://demo.xrl.im'
+    expect(corsHeaders('https://evil.com')['Access-Control-Allow-Origin']).toBeUndefined()
+  })
+
+  it('仅在预检声明私有网络访问时下发 PNA 头', () => {
+    expect(
+      corsHeaders('https://demo.xrl.im', { privateNetwork: true })[
+        'Access-Control-Allow-Private-Network'
+      ],
+    ).toBe('true')
+    expect(
+      corsHeaders('https://demo.xrl.im')['Access-Control-Allow-Private-Network'],
+    ).toBeUndefined()
+  })
+})
+
+describe('bridge — trimOrigin', () => {
+  it('去掉末尾斜杠，保留其余部分', () => {
+    expect(trimOrigin('https://demo.xrl.im/')).toBe('https://demo.xrl.im')
+    expect(trimOrigin('https://demo.xrl.im///')).toBe('https://demo.xrl.im')
+    expect(trimOrigin('https://demo.xrl.im')).toBe('https://demo.xrl.im')
+    expect(trimOrigin(undefined)).toBe('')
   })
 })
 

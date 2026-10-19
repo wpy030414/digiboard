@@ -121,5 +121,5 @@
 - **无网格辅助线**：屏幕由点阵本身表达格子，编辑器不再叠加网格线层。
 - **不可变约定**：历史栈与当前场景可能共享结构；任何像素写入前必须 clone（`withPixelLayer`），任何结构修改必须展开复制。违反此约定会破坏撤销/重做。
 - **dev-only 测试钩子**：`window.__digiboard` 仅在 `import.meta.env.DEV` 挂载（E2E 确定性断言用），生产构建不暴露。
-- **bridge 安全边界**：只监听 127.0.0.1；绝不读 `.key` 令牌文件；CORS 默认只放行 localhost/127.0.0.1，可用 `DIGIBOARD_ORIGIN` 收紧到确切源。
+- **bridge 安全边界**：只监听 127.0.0.1；绝不读 `.key` 令牌文件；CORS **默认放行任意来源**（副屏部署域名不可枚举，而回环可达性本身就是唯一屏障），`DIGIBOARD_ORIGIN` 可收紧为白名单（逗号/空格分隔多值）；`OPTIONS` 预检在浏览器声明 PNA 时回 `Access-Control-Allow-Private-Network`，以支持「公网 https 页 → 本机 http」。
 - **jsdom 能力边界**：canvas 2D / SVG 栅格化 / toBlob 在 jsdom 无实现——纯逻辑（几何/矩阵/RLE/序列化/组件结构）走 vitest，真实像素合成走 Playwright（chromium）。
